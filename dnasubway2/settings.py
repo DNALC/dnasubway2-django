@@ -27,7 +27,7 @@ SECRET_KEY = 'django-insecure-kp=%lgeb83zin2g_=@(bqk6suj0n+b32qm^cej%+eeae7&lv!3
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['z2', 'localhost', '127.0.0.1', '0.0.0.0', 'z2.cshl.edu']
+ALLOWED_HOSTS = ['z2', 'localhost', '127.0.0.1', '0.0.0.0', 'z2.cshl.edu', 'zmeu', 'zmeu.cshl.edu']
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
 ]
