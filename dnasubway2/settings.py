@@ -11,12 +11,17 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 APPEND_SLASH = False
 CORS_ALLOW_CREDENTIALS = True
 
+STATICFILES_DIRS=[
+    os.path.join(BASE_DIR,'abi_files'),
+]
+STATTC_URL = '/abi_files/'
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
@@ -28,6 +33,12 @@ SECRET_KEY = 'django-insecure-kp=%lgeb83zin2g_=@(bqk6suj0n+b32qm^cej%+eeae7&lv!3
 DEBUG = True
 
 ALLOWED_HOSTS = ['z2', 'localhost', '127.0.0.1', '0.0.0.0', 'z2.cshl.edu', 'zmeu', 'zmeu.cshl.edu']
+
+MAILGUN_DOMAIN = "mail.dnalc.org"
+MAILGUN_API_KEY = "placeholder"
+MAILGUN_FROM_EMAIL = "DNALC Admin <dnalcadmin@mail.dnalc.org>"
+REACT_URL = "http://zmeu.cshl.edu:3000"
+
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
 ]
