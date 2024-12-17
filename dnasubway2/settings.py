@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 from pathlib import Path
 import os
+#USE_X_FORWARDED_HOST = True
+#FORCE_SCRIPT_NAME = '/backend/'
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -19,9 +21,9 @@ APPEND_SLASH = False
 CORS_ALLOW_CREDENTIALS = True
 
 STATICFILES_DIRS=[
-    os.path.join(BASE_DIR,'abi_files'),
+    os.path.join(BASE_DIR,'backend/abi_files'),
 ]
-STATTC_URL = '/abi_files/'
+STATTC_URL = 'backend/abi_files/'
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
@@ -32,23 +34,45 @@ SECRET_KEY = 'django-insecure-kp=%lgeb83zin2g_=@(bqk6suj0n+b32qm^cej%+eeae7&lv!3
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['z2', 'localhost', '127.0.0.1', '0.0.0.0', 'z2.cshl.edu', 'zmeu', 'zmeu.cshl.edu']
+ALLOWED_HOSTS = ['z2', 'localhost', '127.0.0.1', '0.0.0.0', 'z2.cshl.edu', 'zmeu', 'zmeu.cshl.edu', 'dnasubway.org', 'www.dnasubway.org', 'dnasubwayv2.dnalc.org']
 
 MAILGUN_DOMAIN = "mail.dnalc.org"
 MAILGUN_API_KEY = "placeholder"
 MAILGUN_FROM_EMAIL = "DNALC Admin <dnalcadmin@mail.dnalc.org>"
-REACT_URL = "http://zmeu.cshl.edu:3000"
+REACT_URL = "http://dnasubwayv2.dnalc.org/"
 
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
 ]
 
 CORS_ALLOWED_ORIGINS = [
-    'http://zmeu.cshl.edu:3000'
+    'http://zmeu.cshl.edu:3000',
+    'http://zmeu.cshl.edu:3002',
+    'http://zmeu:3000',
+    'http://zmeu:3002',
+    'http://dnasubway.org',
+    'http://www.dnasubway.org',
+    'http://dnasubwayv2.dnalc.org',
+    'https://dnasubway.org',
+    'https://www.dnasubway.org',
+    'https://dnasubwayv2.dnalc.org'
 ]
+SESSION_COOKIE_SAMESITE = None
+CSRF_COOKIE_SAMESITE = None
+CSRF_COOKIE_SECURE = True
+CSRF_FAILURE_VIEW = 'backend.views.csrf_failure'
 
 CSRF_TRUSTED_ORIGINS = [
-    'http://zmeu.cshl.edu:3000'
+    'http://zmeu.cshl.edu:3000',
+    'http://zmeu.cshl.edu:3002',
+    'http://zmeu:3000',
+    'http://zmeu:3002',
+    'http://dnasubway.org',
+    'http://www.dnasubway.org',
+    'http://dnasubwayv2.dnalc.org',
+    'https://dnasubway.org',
+    'https://www.dnasubway.org',
+    'https://dnasubwayv2.dnalc.org'
 ]
 
 # Application definition
@@ -105,6 +129,9 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        'OPTIONS': {
+            'timeout': 60,  # Increase this value to 20 seconds or more
+        }
     }
 }
 
@@ -139,13 +166,32 @@ USE_I18N = True
 
 USE_TZ = True
 
+DATA_UPLOAD_MAX_MEMORY_SIZE = 1048576000
+
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/backend/static/'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+CELERY_BROKER_URL = 'redis://localhost:6379/0'  # Using Redis as the broker
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+BLASTDB="/data/webmaster/blastdb/"
+SPECIES_MAP = {
+  "default": "phydb202212",
+  "v": "viral-genomes-202002"
+}
+BLASTN_PROGRAM = "blastn"
+MUSCLE_PROGRAM = "muscle"
+SEQBOOT_PROGRAM = "seqboot"
+DNADIST_PROGRAM = "dnadist"
+NEIGHBOR_PROGRAM = "neighbor"
+CONSENSE_PROGRAM = "consense"
+DNAML_PROGRAM = "dnaml"
