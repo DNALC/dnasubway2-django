@@ -985,7 +985,7 @@ def process_abi_file(request):
 
         
     # Open ABI file and extract data
-    message, sequence, trace_exists, record, _ = parse_reads(os.path.join(PROTOCOL + request.get_host() + "/backend", abi_file.name))
+    message, sequence, trace_exists, record, _ = parse_reads(PROTOCOL + request.get_host() + "/backend" + "/" + abi_file.name)
     if message:
         return JsonResponse({'error': message}, status=500)
 
@@ -1877,7 +1877,7 @@ def process_reference_data(request):
                 if os.path.isdir(abi_dir):
                     for abi_file_name in os.listdir(abi_dir):
                         abi_file_path = os.path.join(sample_data.file.name, abi_file_name)
-                        file_url = os.path.join(PROTOCOL + request.get_host() + "/backend", abi_file_path)
+                        file_url = PROTOCOL + request.get_host() + "/backend/" + abi_file_path
                         name = cleanSequenceName(file_url)
                         if ProjectDataFile.objects.filter(project=project, data_file__name=name):
                             continue
@@ -2184,7 +2184,7 @@ def upload_sanger_files(request):
                 abi_content = ContentFile(decoded_bytes)
                 abi_file_name = f"{data_file.id}.abi"
                 abi_file_path = default_storage.save(f"abi_files/{abi_file_name}", abi_content)
-                file_url = os.path.join(PROTOCOL + request.get_host() + "/backend/abi_files/", abi_file_name)
+                file_url = PROTOCOL + request.get_host() + "/backend/abi_files/" + abi_file_name
                 message, sequence, trace_exists, record, _ = parse_reads(file_url)
                 name = record.name
                 if message:

@@ -704,7 +704,7 @@ def muscle(user, hostname, file_ids, projectId):
     }
 
 def local_muscle(user, hostname, file_ids, projectId):
-    file_path = "muscle_files/" + str(projectId) + ".fasta"
+    file_path = os.path.join("muscle_files" + str(projectId) + ".fasta")
     multi_seq_muscle_jobs(file_path, file_ids)
     appId = "muscle_app"
     job_uuid = fake_tapis_job(user, appId, None, projectId)
@@ -856,7 +856,7 @@ def trim_ambiguous_nucleotides(seq):
 
 def suggested_trim(hostname, dataFile):
     associated_file = dataFile.associated_abi if dataFile.associated_abi else dataFile.associated_fasta
-    file_path = os.path.join(hostname, associated_file.name)
+    file_path = hostname + "/" + associated_file.name
     message, sequence, _, _, quality_values = parse_reads(file_path)
     if message:
         print(message)
