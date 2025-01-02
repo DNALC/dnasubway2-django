@@ -27,6 +27,7 @@ import shutil
 from .tasks import run_fastp_task, run_porechop_task, run_medaka_task  # Celery task
 from Bio import SeqIO
 import base64
+from .models import DataFile, Author
 
 PROTOCOL = "https://"
 
@@ -2461,3 +2462,121 @@ def upload_fasta_content(request):
         sequences_added = True
 
     return JsonResponse({"status": "success", "warnings": warnings}, status=200)
+
+
+def toggle_visibility(request):
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+    data = parsed_data['data']
+    datafile_id = data.get("datafile_id")
+    datafile = get_object_or_404(DataFile, id=datafile_id, user=request.user)
+    
+    datafile.is_public = not datafile.is_public
+    datafile.save()
+    
+    # Return a success response with the updated visibility status
+    return JsonResponse({'success': True, 'is_public': datafile.is_public})
+    
+
+def get_public_datafiles(request):
+    """Retrieve all public DataFiles for a specific user based on user_id."""
+    if request.method == 'GET':
+        # Get user_id from query parameters
+        user_id = request.GET.get('user_id')
+        if not user_id:
+            return JsonResponse({'error': 'Missing user_id parameter'}, status=400)
+
+        try:
+            # Fetch the user object based on the provided user_id
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return JsonResponse({'error': 'User not found'}, status=404)
+
+        # Get all public DataFiles for the given user
+        public_datafiles = DataFile.objects.filter(user=user, is_public=True)
+
+        data = [
+            {
+                'datafile_id': datafile.id,
+                'name': datafile.name,
+                'username': datafile.user.username,
+                'associated_abi': datafile.associated_abi.url if datafile.associated_abi else None,
+                'authors': [
+                    {'first_name': author.first_name, 'last_name': author.last_name, 'affiliation': author.affiliation}
+                    for author in datafile.authors.all()
+                ],
+                'specimen': {
+                    'codon': datafile.specimen.codon if hasattr(datafile, 'specimen') and datafile.specimen.codon else None,
+                    'institution_storing': datafile.specimen.institution_storing if hasattr(datafile, 'specimen') and datafile.specimen.institution_storing else None,
+                    'identifier_name': datafile.specimen.identifier_name if hasattr(datafile, 'specimen') and datafile.specimen.identifier_name else None,
+                    'identifier_email': datafile.specimen.identifier_email if hasattr(datafile, 'specimen') and datafile.specimen.identifier_email else None,
+                    'genus': datafile.specimen.genus if hasattr(datafile, 'specimen') and datafile.specimen.genus else None,
+                    'species': datafile.specimen.species if hasattr(datafile, 'specimen') and datafile.specimen.species else None,
+                    'date_collected': datafile.specimen.date_collected.strftime('%Y-%m-%d') if hasattr(datafile, 'Specimen') and datafile.specimen.date_collected else None,
+                    'country': datafile.specimen.country if hasattr(datafile, 'specimen') and datafile.specimen.country else None,
+                    'state_province': datafile.specimen.state_province if hasattr(datafile, 'specimen') and datafile.specimen.state_province else None,
+                    'city': datafile.specimen.city if hasattr(datafile, 'specimen') and datafile.specimen.city else None,
+                    'habitat': datafile.specimen.habitat if hasattr(datafile, 'specimen') and datafile.specimen.habitat else None,
+                    'exact_site': datafile.specimen.exact_site if hasattr(datafile, 'specimen') and datafile.specimen.exact_site else None,
+                    'isolation_source': datafile.specimen.isolation_source if  hasattr(datafile, 'specimen') and datafile.specimen.isolation_source else None,
+                    'sample_collected_from_host': datafile.specimen.sample_collected_from_host if hasattr(datafile, 'specimen') and datafile.specimen.sample_collected_from_host else None,
+                    'host_organism_name': datafile.specimen.host_organism_name if hasattr(datafile, 'specimen') and datafile.specimen.host_organism_name else None,
+                    'latitude': datafile.specimen.latitude if hasattr(datafile, 'specimen') and datafile.specimen.latitude else None,
+                    'longitude': datafile.specimen.longitude if hasattr(datafile, 'specimen') and datafile.specimen.longitude else None,
+                    'altitude': datafile.specimen.altitude if hasattr(datafile, 'specimen') and datafile.specimen.altitude else None,
+                    'notes': datafile.specimen.notes if hasattr(datafile, 'specimen') and datafile.specimen.notes else None,
+                    'sex': datafile.specimen.sex if hasattr(datafile, 'specimen') and datafile.specimen.sex else None,
+                    'reproduction': datafile.specimen.reproduction if hasattr(datafile, 'specimen') and datafile.specimen.reproduction else None,
+                    'life_stage': datafile.specimen.life_stage if hasattr(datafile, 'specimen') and datafile.specimen.life_stage else None,
+                    'primer_used': datafile.specimen.primer_used if hasattr(datafile, 'specimen') and datafile.specimen.primer_used else None,
+                }
+            }
+            for datafile in public_datafiles
+        ]
+
+        return JsonResponse({'public_datafiles': data}, safe=False)
+
+    return JsonResponse({'error': 'Invalid request method'}, status=400)
+
+def add_specimen(request):
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+    specimen_data = parsed_data['data']
+    datafile_id = specimen_data.get("datafile_id")
+    datafile = get_object_or_404(DataFile, id=datafile_id, user=request.user)
+
+    specimen, created = Specimen.objects.update_or_create(
+        datafile=datafile,
+        defaults={
+            'codon': specimen_data.get('codon'),
+            'institution_storing': specimen_data.get('institution_storing'),
+            'identifier_name': specimen_data.get('identifier_name'),
+            'identifier_email': specimen_data.get('identifier_email'),
+            'genus': specimen_data.get('genus'),
+            'species': specimen_data.get('species'),
+            'date_collected': specimen_data.get('date_collected'),
+            'country': specimen_data.get('country'),
+            'state_province': specimen_data.get('state_province'),
+            'city': specimen_data.get('city'),
+            'habitat': specimen_data.get('habitat'),
+            'exact_site': specimen_data.get('exact_site'),
+            'isolation_source': specimen_data.get('isolation_source'),
+            'sample_collected_from_host': specimen_data.get('sample_collected_from_host'),
+            'host_organism_name': specimen_data.get('host_organism_name'),
+            'latitude': specimen_data.get('latitude'),
+            'longitude': specimen_data.get('longitude'),
+            'altitude': specimen_data.get('altitude'),
+            'notes': specimen_data.get('notes'),
+            'sex': specimen_data.get('sex'),
+            'reproduction': specimen_data.get('reproduction'),
+            'life_stage': specimen_data.get('life_stage'),
+            'primer_used': specimen_data.get('primer_used'),
+        }
+    )
+
+    return JsonResponse({'success': True, 'specimen_id': specimen.id})
+
+
+

@@ -2,6 +2,7 @@ from django.contrib.auth.models import User
 from django.db import models
 from django.utils import timezone
 import secrets
+from django.utils.timezone import now
 
 def reference_file_path(instance, filename):
     # This function will construct the path based on the category of the reference data
@@ -221,6 +222,22 @@ class DataFile(models.Model):
     # Boolean indicating if the file is public
     is_public = models.BooleanField(default=False)
 
+
+     
+    def __str__(self):
+        return self.name
+
+    
+    # Toggle public visibility method
+    def toggle_visibility(self):
+        self.is_public = not self.is_public
+        self.save()
+
+    #Static Method for pubic databases dashboard
+    def get_public_datafiles():
+        """Retrieve All Public Datafiles."""
+        return DataFile.objects.filter(is_public=True)
+
     # Reference to the original multi-sequence FASTA file
     reference_data = models.ForeignKey(ReferenceData, on_delete=models.SET_NULL, null=True, blank=True)
     # Reference to the original multi-sequence FASTA or ABI file
@@ -432,3 +449,46 @@ class MedakaResult(models.Model):
     fasta_file_medaka_headers = models.FileField(upload_to='medaka_files/')
     medaka_output_dir = models.FilePathField(path='medaka_output/', match='.*', recursive=True)  # Updated to FilePathField
     processed_at = models.DateTimeField(default=timezone.now)
+
+class Specimen(models.Model):
+    """Model to Store Specimen Details."""
+    datafile = models.OneToOneField('DataFile', on_delete=models.CASCADE, related_name='specimen')
+    codon = models.CharField(max_length=255, null=True, blank=True)
+    institution_storing = models.CharField(max_length=255, null=True, blank=True)
+    identifier_name = models.CharField(max_length=255, null=True, blank=True)
+    identifier_email = models.EmailField(null=True, blank=True)
+    genus = models.CharField(max_length=255, null=True, blank=True)
+    species = models.CharField(max_length=255, null=True, blank=True)
+    date_collected = models.DateField(null=True, blank=True)
+    country = models.CharField(max_length=255, null=True, blank=True)
+    state_province = models.CharField(max_length=255, null=True, blank=True)
+    city = models.CharField(max_length=255, null=True, blank=True)
+    habitat = models.CharField(max_length=255, null=True, blank=True)
+    exact_site = models.TextField(null=True, blank=True)
+    isolation_source = models.TextField(null=True, blank=True)
+    sample_collected_from_host = models.BooleanField(default=False)
+    host_organism_name = models.CharField(max_length=255, null=True, blank=True)
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+    altitude = models.FloatField(null=True, blank=True)
+    notes = models.TextField(null=True, blank=True)
+    sex = models.CharField(max_length=50, null=True, blank=True)
+    reproduction = models.CharField(max_length=50, null=True, blank=True)
+    life_stage = models.CharField(max_length=50, null=True, blank=True)
+    primer_used = models.CharField(max_length=255, null=True, blank=True)
+
+    def __str__(self):
+        return f"Specimen {self.genus} {self.species} - Collected {self.date_collected}"
+
+
+class Author(models.Model):
+    datafile = models.ForeignKey('DataFile', on_delete=models.CASCADE, related_name='authors')
+    first_name = models.CharField(max_length=255)
+    last_name = models.CharField(max_length=255)
+    affiliation = models.CharField(max_length=255)
+    specimen = models.ForeignKey(Specimen, on_delete=models.CASCADE)
+    
+    def __str__(self):
+        return f"{self.first_name} {self.last_name} ({self.affiliation}) (DataFile ID {self.datafile.id})"
+
+

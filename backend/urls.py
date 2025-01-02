@@ -46,4 +46,9 @@ urlpatterns = [
     path('backend/upload_bold_data', upload_bold_data, name='upload_bold_data'),
     path('backend/upload_genbank_data', upload_genbank_data, name='upload_genbank_data'),
     path('backend/upload_fasta_content', upload_fasta_content, name='upload_fasta_content'),
+    path('backend/toggle_visibility', toggle_visibility, name='toggle_visibility'),
+    path('backend/get_public_datafiles', get_public_datafiles, name='get_public_datafiles'),
+    path('backend/add_specimen', add_specimen, name='add_specimen')
 ]
+
+
