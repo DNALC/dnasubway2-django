@@ -575,7 +575,10 @@ def run_seqboot(infile):
     """Runs the SEQBOOT program."""
     outfile = tempfile.NamedTemporaryFile(delete=False, mode='w')
     outfile_name = outfile.name
-    os.remove(outfile_name)
+    try:
+        os.remove(outfile_name)
+    except Exception as e:
+        print(f"Error deleting temporary file: {e}")
     seqboot_control = f"""{infile}\n2\nR\n100\nY\n101\nF\n{outfile_name}"""
     run_program_with_control(settings.SEQBOOT_PROGRAM, seqboot_control)
     outfile.close()
@@ -586,7 +589,10 @@ def run_dnadist(infile):
     """Runs the DNADIST program."""
     outfile = tempfile.NamedTemporaryFile(delete=False, mode='w')
     outfile_name = outfile.name
-    os.remove(outfile_name)
+    try:
+        os.remove(outfile_name)
+    except Exception as e:
+        print(f"Error deleting temporary file: {e}")
     dnadist_control = f"""{infile}\nF\n{outfile_name}\nL\n2\nM\nD\n100\nY"""
     run_program_with_control(settings.DNADIST_PROGRAM, dnadist_control)
     outfile.close()
@@ -598,8 +604,14 @@ def run_neighbor(infile):
     outfile_name = outfile.name
     outtree = tempfile.NamedTemporaryFile(delete=False, mode='w')
     outtree_name = outtree.name
-    os.remove(outfile_name)
-    os.remove(outtree_name)
+    try:
+        os.remove(outfile_name)
+    except Exception as e:
+        print(f"Error deleting temporary file: {e}")
+    try:
+        os.remove(outtree_name)
+    except Exception as e:
+        print(f"Error deleting temporary file: {e}")
     neighbor_control = f"""{infile}\nF\n{outfile_name}\n2\nL\nM\n100\n101\nY\nF\n{outtree_name}"""
     run_program_with_control(settings.NEIGHBOR_PROGRAM, neighbor_control)
     return outfile_name, outtree_name
@@ -610,8 +622,14 @@ def run_consense(intree, outgroup_name, header_mapping):
     outfile_name = outfile.name
     outtree = tempfile.NamedTemporaryFile(delete=False, mode='w')
     outtree_name = outtree.name
-    os.remove(outfile_name)
-    os.remove(outtree_name)
+    try:
+        os.remove(outfile_name)
+    except Exception as e:
+        print(f"Error deleting temporary file: {e}")
+    try:
+        os.remove(outtree_name)
+    except Exception as e:
+        print(f"Error deleting temporary file: {e}")
     outgroup_index = find_outgroup_index(outgroup_name, header_mapping, intree)
     consense_control = f"""{intree}\nF\n{outfile_name}\nO\n{outgroup_index}\n1\n2\nY\nF\n{outtree_name}"""
     run_program_with_control(settings.CONSENSE_PROGRAM, consense_control)
@@ -622,8 +640,14 @@ def run_dnaml(infile, outgroup_index):
     outfile_name = outfile.name
     outtree = tempfile.NamedTemporaryFile(delete=False, mode='w')
     outtree_name = outtree.name
-    os.remove(outfile_name)
-    os.remove(outtree_name)
+    try:
+        os.remove(outfile_name)
+    except Exception as e:
+        print(f"Error deleting temporary file: {e}")
+    try:
+        os.remove(outtree_name)
+    except Exception as e:
+        print(f"Error deleting temporary file: {e}")
     dnaml_control = f"""{infile}\nF\n{outfile_name}\n2\nO\n{outgroup_index}\nY\nF\n{outtree_name}"""
     run_program_with_control(settings.DNAML_PROGRAM, dnaml_control)
     return outfile_name, outtree_name
@@ -674,7 +698,8 @@ def execute_phylip_pipeline(fasta_file, outgroup):
     ]
     
     for temp_file in temp_files:
-        os.remove(temp_file)
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
 
     return content
 
@@ -707,7 +732,8 @@ def execute_phylip_ml_pipeline(fasta_file, outgroup):
     ]
     
     for temp_file in temp_files:
-        os.remove(temp_file)
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
 
     return content
 

@@ -5,7 +5,7 @@ from django.contrib.auth.hashers import make_password
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.paginator import Paginator
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
@@ -29,7 +29,7 @@ from Bio import SeqIO
 import base64
 from .models import DataFile, Author
 
-PROTOCOL = "https://"
+PROTOCOL = getattr(settings, 'PROTOCOL') or "https://"
 
 # Return dictionary with error if not POST, otherwise return False
 def not_post(request):
@@ -781,8 +781,8 @@ def project_info(request):
 
         if muscle_data:
             similarity = {}
-            phylip_nj_job = PhylipNJJob.objects.filter(muscle_data=muscle_data).last()
-            phylip_ml_job = PhylipMLJob.objects.filter(muscle_data=muscle_data).last()
+            phylip_nj_job = PhylipNJJob.objects.filter(muscle_data=muscle_data).exclude(Q(job__status='FAILED') | Q(job__status='STOPPED')).last()
+            phylip_ml_job = PhylipMLJob.objects.filter(muscle_data=muscle_data).exclude(Q(job__status='FAILED') | Q(job__status='STOPPED')).last()
 
             if phylip_nj_job:
                 phylip_nj_outgroup = phylip_nj_job.outgroup

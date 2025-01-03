@@ -658,7 +658,7 @@ def phylip_ml(user, hostname, muscle_data, outgroup, projectId):
     }
 
 def muscle(user, hostname, file_ids, projectId):
-    file_path = "muscle_files/" + str(projectId) + ".fasta"
+    file_path = os.path.join("muscle_files", str(projectId) + ".fasta")
     multi_seq_muscle_jobs(file_path, file_ids)
     file_path = os.path.join(hostname, file_path)
     appId = "muscle_app"
@@ -704,7 +704,7 @@ def muscle(user, hostname, file_ids, projectId):
     }
 
 def local_muscle(user, hostname, file_ids, projectId):
-    file_path = os.path.join("muscle_files" + str(projectId) + ".fasta")
+    file_path = os.path.join("muscle_files", str(projectId) + ".fasta")
     multi_seq_muscle_jobs(file_path, file_ids)
     appId = "muscle_app"
     job_uuid = fake_tapis_job(user, appId, None, projectId)
