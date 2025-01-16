@@ -192,6 +192,8 @@ class DataFile(models.Model):
     accession_number = models.CharField(max_length=100, null=True, blank=True)
     order_id = models.IntegerField(null=True, blank=True)
     source_file_id = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
 
     def save(self, *args, **kwargs):
         # Ensure certain fields are set only if source is appropriate
@@ -222,24 +224,15 @@ class DataFile(models.Model):
     # Boolean indicating if the file is public
     is_public = models.BooleanField(default=False)
 
+    # Boolean indicating if the file is in the sequence repository
+    in_sequence_repository = models.BooleanField(default=False)
 
-     
     def __str__(self):
         return self.name
 
-    
-    # Toggle public visibility method
-    def toggle_visibility(self):
-        self.is_public = not self.is_public
-        self.save()
-
-    #Static Method for pubic databases dashboard
-    def get_public_datafiles():
-        """Retrieve All Public Datafiles."""
-        return DataFile.objects.filter(is_public=True)
-
     # Reference to the original multi-sequence FASTA file
     reference_data = models.ForeignKey(ReferenceData, on_delete=models.SET_NULL, null=True, blank=True)
+
     # Reference to the original multi-sequence FASTA or ABI file
     sample_data = models.ForeignKey(SampleData, on_delete=models.SET_NULL, null=True, blank=True)
 
@@ -336,6 +329,14 @@ class MuscleFile(models.Model):
 class MuscleData(models.Model):
     muscle_job = models.ForeignKey(MuscleJob, on_delete=models.CASCADE)
     associated_alignment = models.FileField(upload_to='alignment_files/', null=True, blank=True)
+    original_associated_alignment = models.FileField(upload_to='alignment_files/', null=True, blank=True)
+
+
+class MuscleTrim(models.Model):
+    muscle_data = models.OneToOneField(MuscleData, on_delete=models.CASCADE, related_name='trim')
+    left_trim = models.IntegerField(default=0)
+    right_trim = models.IntegerField(default=0)
+
 class MuscleSequence(models.Model):
     muscle_data = models.ForeignKey(MuscleData, on_delete=models.CASCADE, related_name='sequences')
     name = models.CharField(max_length=255)
@@ -491,4 +492,15 @@ class Author(models.Model):
     def __str__(self):
         return f"{self.first_name} {self.last_name} ({self.affiliation}) (DataFile ID {self.datafile.id})"
 
+class SequenceRepository(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    is_public = models.BooleanField(default=False)
 
+    def toggle_visibility(self):
+        self.is_public = not self.is_public
+        self.save()
+
+    def __str__(self):
+        return self.name

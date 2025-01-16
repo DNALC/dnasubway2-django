@@ -27,7 +27,7 @@ import shutil
 from .tasks import run_fastp_task, run_porechop_task, run_medaka_task  # Celery task
 from Bio import SeqIO
 import base64
-from .models import DataFile, Author
+from .models import Author, MuscleTrim
 
 PROTOCOL = getattr(settings, 'PROTOCOL') or "https://"
 
@@ -76,6 +76,7 @@ def parse_data(request):
     if not data:
         return {'error': 'Invalid JSON data', 'status': 400}
 
+
     return {'data': data}
 
 # Return dictionary with error if not post request or request body cannot be parsed as JSON or user not authenticated,
@@ -83,7 +84,7 @@ def parse_data(request):
 def parse_user_data(request):
     parsed_data = parse_data(request)
     if 'error' in parsed_data:
-        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+        return {'error': parsed_data['error'], 'status': parsed_data['status']}
     is_not_authenticated = not_authenticated(request)
     data = parsed_data['data']
 
@@ -97,7 +98,7 @@ def parse_user_data(request):
 def parse_user_project_data(request):
     parsed_data = parse_user_data(request)
     if 'error' in parsed_data:
-        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+        return {'error': parsed_data['error'], 'status': parsed_data['status']}
 
     data = parsed_data['data']
     pid = data.get('pid')
@@ -653,6 +654,8 @@ def project_info(request):
             'source_origin': source_origin,
             'blast_job': False,
             'blast_results': None,
+            'is_public': data_file.is_public,
+            'in_sequence_repository': data_file.in_sequence_repository,
         }
 
         # Check for BlastJob
@@ -831,7 +834,9 @@ def project_info(request):
                     ],
                    'consensus': muscle_data.consensus.sequence if hasattr(muscle_data, 'consensus') else None,
                    'similarity': similarity if similarity else None,
-           } if hasattr(muscle_data, 'consensus') else None
+                   'left_trim': muscle_data.trim.left_trim if hasattr(muscle_data, 'trim') else 0,
+                   'right_trim': muscle_data.trim.right_trim if hasattr(muscle_data, 'trim') else 0,
+            } if hasattr(muscle_data, 'consensus') else None
 
     project_data = {
         'id': project.id,
@@ -849,6 +854,7 @@ def project_info(request):
         'project_type': project.project_type,
         'created_date': project.created.strftime('%Y-%m-%d'),  # Format date as YYYY-MM-DD
         'username': project.user.username,
+        'uid': project.user.id,
         'sequences': serialized_sequences,
         'nanopore_sequences': nanopore,
     }
@@ -2463,8 +2469,8 @@ def upload_fasta_content(request):
 
     return JsonResponse({"status": "success", "warnings": warnings}, status=200)
 
-
-def toggle_visibility(request):
+# Helper function
+def toggle_datafile_boolean_field(request, field_name):
     parsed_data = parse_user_data(request)
     if 'error' in parsed_data:
         return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
@@ -2472,15 +2478,21 @@ def toggle_visibility(request):
     datafile_id = data.get("datafile_id")
     datafile = get_object_or_404(DataFile, id=datafile_id, user=request.user)
     
-    datafile.is_public = not datafile.is_public
+    # Toggle the attribute associated with the provided field_name
+    setattr(datafile, field_name, not getattr(datafile, field_name))
     datafile.save()
     
-    # Return a success response with the updated visibility status
-    return JsonResponse({'success': True, 'is_public': datafile.is_public})
-    
+    # Return a success response with the updated status of the provided field_name
+    return JsonResponse({'success': True, field_name: getattr(datafile, field_name)})
 
-def get_public_datafiles(request):
-    """Retrieve all public DataFiles for a specific user based on user_id."""
+def toggle_visibility(request):
+    return toggle_datafile_boolean_field(request, "is_public")
+
+def toggle_sequence_repository(request):
+    return toggle_datafile_boolean_field(request, "in_sequence_repository")
+
+# Helper function
+def get_filtered_user_datafiles(request, filter_dict, output_name):
     if request.method == 'GET':
         # Get user_id from query parameters
         user_id = request.GET.get('user_id')
@@ -2493,14 +2505,16 @@ def get_public_datafiles(request):
         except User.DoesNotExist:
             return JsonResponse({'error': 'User not found'}, status=404)
 
-        # Get all public DataFiles for the given user
-        public_datafiles = DataFile.objects.filter(user=user, is_public=True)
-
+        # Get all DataFiles for the given user filtered by the provided filter_dict
+        filtered_datafiles = DataFile.objects.filter(user=user, **filter_dict)
         data = [
             {
                 'datafile_id': datafile.id,
                 'name': datafile.name,
                 'username': datafile.user.username,
+                'created': datafile.created,
+                'updated': datafile.updated,
+                'is_public': datafile.is_public,
                 'associated_abi': datafile.associated_abi.url if datafile.associated_abi else None,
                 'authors': [
                     {'first_name': author.first_name, 'last_name': author.last_name, 'affiliation': author.affiliation}
@@ -2513,13 +2527,13 @@ def get_public_datafiles(request):
                     'identifier_email': datafile.specimen.identifier_email if hasattr(datafile, 'specimen') and datafile.specimen.identifier_email else None,
                     'genus': datafile.specimen.genus if hasattr(datafile, 'specimen') and datafile.specimen.genus else None,
                     'species': datafile.specimen.species if hasattr(datafile, 'specimen') and datafile.specimen.species else None,
-                    'date_collected': datafile.specimen.date_collected.strftime('%Y-%m-%d') if hasattr(datafile, 'Specimen') and datafile.specimen.date_collected else None,
+                    'date_collected': datafile.specimen.date_collected.strftime('%Y-%m-%d') if hasattr(datafile, 'specimen') and datafile.specimen.date_collected else None,
                     'country': datafile.specimen.country if hasattr(datafile, 'specimen') and datafile.specimen.country else None,
                     'state_province': datafile.specimen.state_province if hasattr(datafile, 'specimen') and datafile.specimen.state_province else None,
                     'city': datafile.specimen.city if hasattr(datafile, 'specimen') and datafile.specimen.city else None,
                     'habitat': datafile.specimen.habitat if hasattr(datafile, 'specimen') and datafile.specimen.habitat else None,
                     'exact_site': datafile.specimen.exact_site if hasattr(datafile, 'specimen') and datafile.specimen.exact_site else None,
-                    'isolation_source': datafile.specimen.isolation_source if  hasattr(datafile, 'specimen') and datafile.specimen.isolation_source else None,
+                    'isolation_source': datafile.specimen.isolation_source if hasattr(datafile, 'specimen') and datafile.specimen.isolation_source else None,
                     'sample_collected_from_host': datafile.specimen.sample_collected_from_host if hasattr(datafile, 'specimen') and datafile.specimen.sample_collected_from_host else None,
                     'host_organism_name': datafile.specimen.host_organism_name if hasattr(datafile, 'specimen') and datafile.specimen.host_organism_name else None,
                     'latitude': datafile.specimen.latitude if hasattr(datafile, 'specimen') and datafile.specimen.latitude else None,
@@ -2532,12 +2546,21 @@ def get_public_datafiles(request):
                     'primer_used': datafile.specimen.primer_used if hasattr(datafile, 'specimen') and datafile.specimen.primer_used else None,
                 }
             }
-            for datafile in public_datafiles
+            for datafile in filtered_datafiles
         ]
 
-        return JsonResponse({'public_datafiles': data}, safe=False)
+        return JsonResponse({output_name: data}, safe=False)
 
     return JsonResponse({'error': 'Invalid request method'}, status=400)
+
+def get_public_datafiles(request):
+    """Retrieve all public DataFiles for a specific user based on user_id."""
+    return get_filtered_user_datafiles(request, {"is_public": True}, "public_datafiles")
+
+def get_sequence_repository_datafiles(request):
+    """Retrieve all DataFiles for a specific user that are in the sequence repository."""
+    return get_filtered_user_datafiles(request, {"in_sequence_repository": True}, "sequence_repository_datafiles")
+
 
 def add_specimen(request):
     parsed_data = parse_user_data(request)
@@ -2578,5 +2601,159 @@ def add_specimen(request):
 
     return JsonResponse({'success': True, 'specimen_id': specimen.id})
 
+def trim_muscle_alignment(request):
+    if request.method == 'POST':
+        try:
+            # Parse JSON data from the request
+            data = json.loads(request.body)
+            left_trim = data.get('left_trim', 0)
+            right_trim = data.get('right_trim', 0)
+            muscle_data_id = data.get('muscle_data_id')
+
+            muscle_data = get_object_or_404(MuscleData, id=muscle_data_id)
+
+            # If original_associated_alignment doesn't exist, create a backup
+            if not muscle_data.original_associated_alignment:
+                original_associated_alignment_name = muscle_data.associated_alignment.name.replace(".fasta", "-original.fasta")
+                shutil.copyfile(muscle_data.associated_alignment.name, original_associated_alignment_name)
+                muscle_data.original_associated_alignment.name = original_associated_alignment_name
+                muscle_data.save()
+
+            # Prepare a list to store the trimmed sequences
+            trimmed_sequences = []
+            consensus = muscle_data.consensus  # Access the MuscleConsensus instance
+
+            if consensus:
+                trimmed_sequence = consensus.sequence[left_trim:len(consensus.sequence) - right_trim]
+                trimmed_sequences.append(trimmed_sequence)
+
+            # Trim each sequence and write the updated content to the file
+            trimmed_records = []
+            for record in SeqIO.parse(muscle_data.associated_alignment.name, "fasta"):
+                trimmed_seq = record.seq[left_trim:len(record.seq) - right_trim]
+                record.seq = trimmed_seq
+                trimmed_records.append(record)
+
+            # Write the trimmed sequences back to the file
+            SeqIO.write(trimmed_records, muscle_data.associated_alignment.name, "fasta")
+
+            # Create a new MuscleTrim record to record the trimming details
+            muscle_trim, created = MuscleTrim.objects.update_or_create(
+                muscle_data=muscle_data,
+                defaults={'left_trim': left_trim, 'right_trim': right_trim},
+                #create_defaults={'first_name': 'Bob', 'birthday': date(1940, 10, 9)}
+            )
+
+            return JsonResponse({'status': 'success', 'message': 'Alignment trimmed successfully'}, status=200)
+
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'Invalid JSON data'}, status=400)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
 
 
+def undo_muscle_trim(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            muscle_data_id = data.get('muscle_data_id')
+
+            muscle_data = get_object_or_404(MuscleData, id=muscle_data_id)
+
+            # If a backup exists, revert the associated_alignment to its original state
+            if muscle_data.original_associated_alignment:
+                shutil.copyfile(muscle_data.original_associated_alignment.name, muscle_data.associated_alignment.name)
+                try:
+                    os.remove(muscle_data.original_associated_alignment.name)
+                except:
+                    pass
+                muscle_data.original_associated_alignment = None  # Clear the backup
+
+            # Reset the trim values in the MuscleTrim record
+            MuscleTrim.objects.filter(muscle_data=muscle_data).update(left_trim=0, right_trim=0)
+
+            muscle_data.save()
+
+            return JsonResponse({'status': 'success', 'message': 'Trim reverted successfully.'}, status=200)
+
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'Invalid JSON data'}, status=400)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+
+# Function to duplicate datafiles
+def duplicate_datafiles(request):
+    # Parse user and project data
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    user = project.user  # Current user associated with the project
+
+    datafile_ids = data.get('datafile_id', [])  # Array of datafile IDs from the input
+    new_datafiles = []
+    warnings = []
+
+    for datafile_id in datafile_ids:
+        try:
+            # Retrieve the original datafile
+            original_datafile = DataFile.objects.get(id=datafile_id)
+            if original_datafile.user != user and not original_datafile.is_public:
+                warnings.append(f"DataFile with ID {datafile_id} is not yours and not public.")
+                continue
+            data_file_exists = ProjectDataFile.objects.filter(project=project, data_file__name=original_datafile.name)
+            if data_file_exists:
+                warnings.append(f"File with display name {original_datafile.name} already added to this project.")
+                continue
+
+            new_datafile = DataFile.objects.get(id=datafile_id)
+
+            # Duplicate the datafile with a new ID
+            new_datafile.pk = None
+            new_datafile._state.adding = True
+            new_datafile.source="saved"
+            new_datafile.source_file_id=original_datafile
+            new_datafile.user=user
+            new_datafile.in_sequence_repository=False
+            new_datafile.is_public=False
+            new_datafile.save()
+
+            # Handle associated ABI file
+            if original_datafile.associated_abi:
+                abi_content = original_datafile.associated_abi.read()
+                abi_name = f"abi_files/{new_datafile.id}.abi"
+                new_datafile.associated_abi.save(
+                    f"{new_datafile.id}.abi",
+                    ContentFile(abi_content)
+                )
+
+            # Handle associated FASTA file
+            if original_datafile.associated_fasta:
+                fasta_content = original_datafile.associated_fasta.read()
+                fasta_name = f"fasta_files/{new_datafile.id}.fasta"
+                new_datafile.associated_fasta.save(
+                    f"{new_datafile.id}.fasta",
+                    ContentFile(fasta_content)
+                )
+
+            # Save the new datafile
+            new_datafile.save()
+
+            # Associate the new datafile with the project
+            project_data_file = ProjectDataFile.objects.create(
+                project=project,
+                data_file=new_datafile
+            )
+
+            new_datafiles.append(new_datafile.id)
+        except DataFile.DoesNotExist:
+            warnings.append(f"DataFile with ID {datafile_id} does not exist.")
+        except Exception as e:
+            warnings.append(str(e))
+
+    if len(new_datafiles) > 0:
+        return JsonResponse({"status": "success", "new_datafile_ids": new_datafiles, "warnings": warnings}, status=200)
+    else:
+        return JsonResponse({"error": "No datafiles were able to be added.", "warnings": warnings}, status=400)

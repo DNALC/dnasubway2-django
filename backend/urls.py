@@ -48,7 +48,14 @@ urlpatterns = [
     path('backend/upload_fasta_content', upload_fasta_content, name='upload_fasta_content'),
     path('backend/toggle_visibility', toggle_visibility, name='toggle_visibility'),
     path('backend/get_public_datafiles', get_public_datafiles, name='get_public_datafiles'),
-    path('backend/add_specimen', add_specimen, name='add_specimen')
+    path('backend/add_specimen', add_specimen, name='add_specimen'),
+    path('backend/trim_muscle_alignment', trim_muscle_alignment, name='trim_muscle_alignment'),
+    path('backend/undo_muscle_trim', undo_muscle_trim, name='undo_muscle_trim'),
+    path('backend/toggle_sequence_repository', toggle_sequence_repository, name='toggle_sequence_repository'),
+    path('backend/get_sequence_repository_datafiles', get_sequence_repository_datafiles, name='get_sequence_repository_datafiles'),
+    path('backend/duplicate_datafiles', duplicate_datafiles, name='duplicate_datafiles')
+
+
 ]
 
 

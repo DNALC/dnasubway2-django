@@ -811,13 +811,12 @@ def consense(user, hostname, file1, file2, file1_reverse, file2_reverse, project
     }
 
 def trim(sequence, forward_total, reverse_total):
-    trimmed_seq_length = len(sequence) - reverse_total
-    trimmed_sequence = sequence[forward_total:trimmed_seq_length]
+    end_pos = len(sequence) - reverse_total
+    trimmed_sequence = sequence[forward_total:end_pos]
 
     left_trim = sequence[:forward_total]
     right_trim = sequence[-reverse_total:] if reverse_total > 0 else ""
     start_pos = forward_total
-    end_pos = len(sequence) - reverse_total
 
     return left_trim, right_trim, start_pos, end_pos, trimmed_sequence
 
@@ -886,7 +885,7 @@ def local_sequence_trim(dataFile, left_trim, right_trim):
     left_trim, right_trim, start_pos, end_pos, trimmed_sequence = trim(dataFile.reads, left_trim, right_trim)
     dataFile.reads = trimmed_sequence
     dataFile.trim_start = dataFile.trim_start + start_pos if dataFile.trim_start else start_pos
-    dataFile.trim_end = dataFile.trim_start + end_pos if dataFile.trim_end else end_pos
+    dataFile.trim_end = len(trimmed_sequence) + start_pos
     dataFile.left_trim = dataFile.left_trim + left_trim if dataFile.left_trim else left_trim
     dataFile.right_trim = right_trim + dataFile.right_trim if dataFile.right_trim else right_trim
     dataFile.save()
