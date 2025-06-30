@@ -1417,6 +1417,8 @@ def auto_pair_sequences(request):
                 df2.read_type = 'R' if file2_is_reverse else 'F'
                 df1.save()
                 df2.save()
+                if not df1.reads or not df2.reads:
+                    continue
 
                 local_consense(
                     PROTOCOL + request.get_host() + '/backend',
