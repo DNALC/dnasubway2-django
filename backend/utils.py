@@ -1048,34 +1048,46 @@ def fix_consensus_from_file(forward_alignment, reverse_alignment, consensus, for
     # Get quality scores
     qs1 = forward_record.letter_annotations.get("phred_quality", [0] * len(forward_record))
     qs2 = reverse_record.letter_annotations.get("phred_quality", [0] * len(reverse_record))
+    qs2 = list(reversed(qs2))
 
     # Trim the quality scores based on respective left and right trims
-    trimmed_qs1 = qs1[left_trim_forward:len(qs1) - right_trim_forward]
-    trimmed_qs2 = qs2[left_trim_reverse:len(qs2) - right_trim_reverse]
+    trimmed_qs1 = qs1[left_trim_forward:right_trim_forward]
+    trimmed_qs2 = qs2[left_trim_reverse:right_trim_reverse]
+    trimmed_qs2 = list(reversed(trimmed_qs2))
+
+    def apply_gaps_to_quality(alignment, trimmed_qs):
+        gapped_qs = []
+        q_idx = 0
+        for base in alignment:
+            if base == '-':
+                gapped_qs.append(-1)
+            else:
+                gapped_qs.append(trimmed_qs[q_idx] if q_idx < len(trimmed_qs) else -1)
+                q_idx += 1
+        return gapped_qs
+
+    gapped_qs1 = apply_gaps_to_quality(forward_alignment_list, trimmed_qs1)
+    gapped_qs2 = apply_gaps_to_quality(reverse_alignment_list, trimmed_qs2)
 
     for i in range(len(consensus)):
         chr1 = forward_alignment_list[i].upper()
         chr2 = reverse_alignment_list[i].upper()
-        if chr1 == '-' and i < len(trimmed_qs1):
-            trimmed_qs1.insert(i, -1)
-        if chr2 == '-' and i < len(trimmed_qs2):
-            trimmed_qs2.insert(i, -1)
-        if chr1 != "N" or chr2 != "N":
-            qs1_value = trimmed_qs1[i] if i < len(trimmed_qs1) else -1  # Fallback to -1 if out of bounds
-            qs2_value = trimmed_qs2[i] if i < len(trimmed_qs2) else -1  # Fallback to -1 if out of bounds
+        qs1_value = gapped_qs1[i]
+        qs2_value = gapped_qs2[i]
+        if chr1 == "-":
+            consensus_list[i] = chr2
+        elif chr2 == "-":
+            consensus_list[i] = chr1
+        elif chr1 != "N" and chr2 != "N":
             if chr1 != chr2:
                 if qs1_value > qs2_value:
                     consensus_list[i] = chr1 if chr1 != '-' else consensus_list[i]
                 else:
                     consensus_list[i] = chr2 if chr2 != '-' else consensus_list[i]
-        if chr1 != "N" and chr2 == "N":
+        elif chr1 != "N" and chr2 == "N":
             consensus_list[i] = chr1
-        if chr2 != "N" and chr1 == "N":
+        elif chr2 != "N" and chr1 == "N":
             consensus_list[i] = chr2
-        if chr1 == "-":
-            consensus_list[i] = chr2
-        if chr2 == "-":
-            consensus_list[i] = chr1
     return ''.join(consensus_list)
 
 def extract_consensus(merger_outseq):
