@@ -1,3 +1,4 @@
+from django.conf import settings
 from Bio import SeqIO
 from io import BytesIO, StringIO
 import json
@@ -10,11 +11,10 @@ import time
 import uuid
 from tapipy.tapis import Tapis
 from .models import Job, DataFile, TrimJob, ConsensusJob, ConsensusData, BlastJob, BlastData, BlastResult, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, Project, ProjectDataFile, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData
-from .tasks import run_blast_task, process_alignment, run_phylip_nj_task, run_phylip_ml_task
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-tapis = Tapis(base_url='https://tacc.tapis.io', username='ryomaf524', password='varsoc23j@mR9')
-tapis.get_tokens()
+tapis = Tapis(base_url='https://cyverse.tapis.io', username=settings.TAPIS_CYVERSE_USERNAME, password=settings.TAPIS_CYVERSE_PASSWORD)
+#tapis.get_tokens()
 
 def extract_sequences(fasta_content):
     try:
@@ -449,6 +449,7 @@ def sequence_trim(user, hostname, dataFile, left_trim, right_trim, projectId):
     }
 
 def local_blast(user, hostname, dataFile, clade, projectId):
+    from .tasks import run_blast_task
     associated_file = dataFile.associated_fasta
     file_path = associated_file.name
     appId = "blastn_app"
@@ -536,6 +537,7 @@ def blast(user, hostname, dataFile, clade, projectId):
     }
 
 def local_phylip_nj(user, hostname, muscle_data, outgroup, projectId):
+    from .tasks import run_phylip_nj_task
     dataFile = muscle_data.associated_alignment
     appId = "phylip_nj_app"
     job_uuid = fake_tapis_job(user, appId, None, projectId)
@@ -553,6 +555,7 @@ def local_phylip_nj(user, hostname, muscle_data, outgroup, projectId):
     }
 
 def local_phylip_ml(user, hostname, muscle_data, outgroup, projectId):
+    from .tasks import run_phylip_ml_task
     dataFile = muscle_data.associated_alignment
     appId = "phylip_ml_app"
     job_uuid = fake_tapis_job(user, appId, None, projectId)
@@ -704,6 +707,7 @@ def muscle(user, hostname, file_ids, projectId):
     }
 
 def local_muscle(user, hostname, file_ids, projectId):
+    from .tasks import process_alignment
     file_path = os.path.join("muscle_files", str(projectId) + ".fasta")
     multi_seq_muscle_jobs(file_path, file_ids)
     appId = "muscle_app"
@@ -881,11 +885,11 @@ def suggested_trim(hostname, dataFile):
         "right": reverse_total
     }
 
-def local_sequence_trim(dataFile, left_trim, right_trim):
-    left_trim, right_trim, start_pos, end_pos, trimmed_sequence = trim(dataFile.reads, left_trim, right_trim)
+def local_sequence_trim(dataFile, left_trim_amount, right_trim_amount):
+    left_trim, right_trim, start_pos, end_pos, trimmed_sequence = trim(dataFile.reads, left_trim_amount, right_trim_amount)
     dataFile.reads = trimmed_sequence
     dataFile.trim_start = dataFile.trim_start + start_pos if dataFile.trim_start else start_pos
-    dataFile.trim_end = len(trimmed_sequence) + start_pos
+    dataFile.trim_end = dataFile.trim_end - right_trim_amount if dataFile.trim_end else len(trimmed_sequence) + start_pos
     dataFile.left_trim = dataFile.left_trim + left_trim if dataFile.left_trim else left_trim
     dataFile.right_trim = right_trim + dataFile.right_trim if dataFile.right_trim else right_trim
     dataFile.save()
@@ -1042,8 +1046,8 @@ def fix_consensus_from_file(forward_alignment, reverse_alignment, consensus, for
     reverse_alignment_list = list(reverse_alignment)
 
     # Get quality scores
-    qs1 = forward_record.letter_annotations["phred_quality"]
-    qs2 = reverse_record.letter_annotations["phred_quality"]
+    qs1 = forward_record.letter_annotations.get("phred_quality", [0] * len(forward_record))
+    qs2 = reverse_record.letter_annotations.get("phred_quality", [0] * len(reverse_record))
 
     # Trim the quality scores based on respective left and right trims
     trimmed_qs1 = qs1[left_trim_forward:len(qs1) - right_trim_forward]
@@ -1152,29 +1156,73 @@ def extract_alignments(aligned_sequences):
     return alignments
 
 def generate_consensus_from_datafile(hostname, datafile_1, datafile_2, datafile_1_reverse, datafile_2_reverse, project, pairLabel):
+    consensus_seq_name = pairLabel if pairLabel else common_prefix_clean(datafile_1.name, datafile_2.name)
+    existing = ProjectDataFile.objects.filter(
+        project=project,
+        data_file__name=consensus_seq_name
+    ).exists()
+
+    if existing and pairLabel:
+        return {
+            "status": "error",
+            "message": f"Sequence with name {consensus_seq_name} already exists, choose a different name for this consensus."
+        }
+    if existing:
+        for i in range(1, 11):
+            new_name = f"{consensus_seq_name}-{i}"
+            if not ProjectDataFile.objects.filter(project=project, data_file__name=new_name).exists():
+                consensus_seq_name = new_name
+                break
+        else:
+                return {
+                    "status": "error",
+                    "message": f"Sequence with name {consensus_seq_name} and {consensus_seq_name}-1 through -10 already exist. Please rename your consensus."
+                }
     associated_file1 = datafile_1.associated_abi if datafile_1.associated_abi else datafile_1.associated_fasta
     associated_fasta1 = datafile_1.associated_fasta
     fasta_path_1 = os.path.join(hostname, associated_file1.name)
     associated_file2 = datafile_2.associated_abi if datafile_2.associated_abi else datafile_2.associated_fasta
     associated_fasta2 = datafile_2.associated_fasta
     fasta_path_2 = os.path.join(hostname, associated_file2.name)
-    _, _, forward_record = extract_sequence_and_quality(associated_file1.path, reverse=datafile_1_reverse)
-    _, _, reverse_record = extract_sequence_and_quality(associated_file2.path, reverse=datafile_2_reverse)
+    _, _, record_1 = extract_sequence_and_quality(associated_file1.path, reverse=datafile_1_reverse)
+    _, _, record_2 = extract_sequence_and_quality(associated_file2.path, reverse=datafile_2_reverse)
+    if datafile_1_reverse and not datafile_2_reverse:
+        forward_record = record_2
+        reverse_record = record_1
+        forward_fasta_path = associated_fasta2.path
+        reverse_fasta_path = associated_fasta1.path
+        forward_datafile = datafile_2
+        reverse_datafile = datafile_1
+    elif not datafile_1_reverse and datafile_2_reverse:
+        forward_record = record_1
+        reverse_record = record_2
+        forward_fasta_path = associated_fasta1.path
+        reverse_fasta_path = associated_fasta2.path
+        forward_datafile = datafile_1
+        reverse_datafile = datafile_2
+    else:
+        forward_record = record_1
+        reverse_record = record_2
+        datafile_1_reverse = False
+        datafile_2_reverse = True
+        forward_fasta_path = associated_fasta1.path
+        reverse_fasta_path = associated_fasta2.path
+        forward_datafile = datafile_1
+        reverse_datafile = datafile_2
 
-    outfile_content, outseq_content = run_merger(associated_fasta1.path, associated_fasta2.path)
+    outfile_content, outseq_content = run_merger(forward_fasta_path, reverse_fasta_path)
     original_consensus = extract_consensus(outseq_content)
     original_forward_alignment, original_reverse_alignment = extract_aligned_sequences(outfile_content)
-    consensus_seq_name = pairLabel if pairLabel else common_prefix_clean(datafile_1.name, datafile_2.name)
-    muscle_output = run_muscle(datafile_2.name, original_reverse_alignment, datafile_1.name, original_forward_alignment, original_consensus, consensus_seq_name)
+    muscle_output = run_muscle(reverse_datafile.name, original_reverse_alignment, forward_datafile.name, original_forward_alignment, original_consensus, consensus_seq_name)
     alignments = extract_alignments(muscle_output)
-    forward_alignment = alignments.get(datafile_1.name, "")
-    reverse_alignment = alignments.get(datafile_2.name, "")
+    forward_alignment = alignments.get(forward_datafile.name, "")
+    reverse_alignment = alignments.get(reverse_datafile.name, "")
     consensus = alignments.get(consensus_seq_name, "")
 
-    left_trim_forward = datafile_1.trim_start if datafile_1.trim_start else 0
-    right_trim_forward = datafile_1.trim_end if datafile_1.trim_end else 0
-    left_trim_reverse = datafile_2.trim_start if datafile_2.trim_start else 0
-    right_trim_reverse = datafile_2.trim_end if datafile_2.trim_end else 0
+    left_trim_forward = forward_datafile.trim_start or 0
+    right_trim_forward = forward_datafile.trim_end or 0
+    left_trim_reverse = reverse_datafile.trim_start or 0
+    right_trim_reverse = reverse_datafile.trim_end or 0
 
     fixed_consensus = fix_consensus_from_file(forward_alignment, reverse_alignment, consensus, forward_record, reverse_record, left_trim_forward, right_trim_forward, left_trim_reverse, right_trim_reverse)
 
@@ -1204,8 +1252,8 @@ def generate_consensus_from_datafile(hostname, datafile_1, datafile_2, datafile_
         reads=fixed_consensus,
         read_type="C"
     )
-    consensus_file.forward_read = datafile_1
-    consensus_file.reverse_read = datafile_2
+    consensus_file.forward_read = forward_datafile
+    consensus_file.reverse_read = reverse_datafile
     content = ContentFile(f">{consensus_file.name}\n{consensus_file.reads}\n")
     fasta_file_name = f"{consensus_file.id}.fasta"
     fasta_file_path = default_storage.save(f"fasta_files/{fasta_file_name}", content)

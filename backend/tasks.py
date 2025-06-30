@@ -170,6 +170,7 @@ def run_medaka_task(project_nanopore_sequence_id):
                 is_consensus=True,
                 read_type='C',
                 source='nanopore',
+                nanopore_seq_id=project_nanopore_sequence.nanopore_sequence,
             )
             new_filename = f"{data_file.id}.fasta"
             fasta_content = ContentFile(f">{data_file.name}\n{data_file.reads}\n")
@@ -387,8 +388,8 @@ def process_alignment(input_file_path, muscle_job_id):
     muscle_version = p.communicate()[0].decode('utf-8').strip()
 
     # Determine argument names based on MUSCLE version
-    input_arg_name = "-in" if "muscle 3" in muscle_version else "-align"
-    output_arg_name = "-out" if "muscle 3" in muscle_version else "-output"
+    input_arg_name = "-in" if ("muscle 3" in muscle_version or "MUSCLE v3" in muscle_version) else "-align"
+    output_arg_name = "-out" if ("muscle 3" in muscle_version or "MUSCLE v3" in muscle_version) else "-output"
 
     # Prepare and run the MUSCLE command
     muscle_command = f"{muscle_program} {input_arg_name} {input_file_path} {output_arg_name} {outfile}"

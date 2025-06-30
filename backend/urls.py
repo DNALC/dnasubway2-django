@@ -28,6 +28,7 @@ urlpatterns = [
     path('backend/phylip_ml_sequence', phylip_ml_sequence, name='phylip_ml_sequence'),
     path('backend/muscle_sequence', muscle_sequence, name='muscle_sequence'),
     path('backend/consense_sequence', consense_sequence, name='consense_sequence'),
+    path('backend/auto_pair_sequences', auto_pair_sequences, name='auto_pair_sequences'),
     path('backend/check_job_status', check_job_status, name='check_job_status'),
     path('backend/upload_nanopore_sample_set', process_nanopore_sample_set, name='upload_nanopore_sample_set'),
     path('backend/nanopore_sample_sets', get_nanopore_sample_sets, name='nanopore_sample_sets'),
@@ -52,10 +53,14 @@ urlpatterns = [
     path('backend/trim_muscle_alignment', trim_muscle_alignment, name='trim_muscle_alignment'),
     path('backend/undo_muscle_trim', undo_muscle_trim, name='undo_muscle_trim'),
     path('backend/toggle_sequence_repository', toggle_sequence_repository, name='toggle_sequence_repository'),
+    path('backend/toggle_project_share_status', toggle_project_share_status, name='toggle_project_share_status'),
     path('backend/get_sequence_repository_datafiles', get_sequence_repository_datafiles, name='get_sequence_repository_datafiles'),
-    path('backend/duplicate_datafiles', duplicate_datafiles, name='duplicate_datafiles')
-
-
+    path('backend/duplicate_datafiles', duplicate_datafiles, name='duplicate_datafiles'),
+    path('backend/phylip/<str:method>/<int:data_id>/', get_phylip_outtree, name='get_phylip_outtree'),
+    path('backend/rename_sanger_file', rename_sanger_file, name='rename_sanger_file'),
+    path('backend/delete_sanger_file', delete_sanger_file, name='delete_sanger_file'),
+    path('backend/delete_nanopore_file', delete_nanopore_file, name='delete_nanopore_file'),
+    path('backend/tutorial_status', get_tutorial_status, name='get_tutorial_status'),
 ]
 
 

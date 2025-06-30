@@ -6,7 +6,7 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.paginator import Paginator
 from django.db.models import Prefetch, Q
-from django.http import JsonResponse
+from django.http import HttpResponse, Http404, JsonResponse
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -277,7 +277,7 @@ def login_view(request):
             login(request, user)
             # Generate and return session token
             session_token = request.session.session_key or request.session.create()  # Ensure session is created
-            return JsonResponse({'session_token': session_token, 'redirect': '/pages/userDash'}, status=200)
+            return JsonResponse({'session_token': session_token, 'redirect': '/dashboard'}, status=200)
         else:
             return JsonResponse({'error': 'Invalid email or password'}, status=401)
     else:
@@ -405,6 +405,7 @@ def get_user_fields(request):
                 'first': user.first_name,
                 'last': user.last_name,
                 'email': user.email,
+                'id': user.id,
             }
 
             # Check if UserProfile exists for the user
@@ -494,7 +495,7 @@ def create_guest_user(request):
                 # If no user exists with the generated username, create the guest user
                 guest_user = User.objects.create_user(username=username)
                 login(request, guest_user)
-                return JsonResponse({'username': username, 'success': 'Guest user created successfully', 'redirect': '/pages/intro'})
+                return JsonResponse({'username': username, 'success': 'Guest user created successfully', 'redirect': '/'})
         # If all retries fail, return an error
         return JsonResponse({'error': 'Failed to create guest user'}, status=500)
 
@@ -516,6 +517,7 @@ def create_project(request):
     description = data.get('description', '').strip()
     project_type = data.get('project_type', 'PHY')
     sequencing_type = data.get('sequencing_type', 'sanger')
+    barcode_type = data.get('barcode_type', 'Other')
 
     # Check if project_type is valid
     if project_type not in dict(Project.PROJECT_TYPES).keys():
@@ -524,6 +526,10 @@ def create_project(request):
     # Check if sequencing_type is valid
     if sequencing_type not in dict(Project.SEQUENCING_TYPES).keys():
         return JsonResponse({'error': 'Invalid sequencing_type'}, status=400)
+
+    # Check if sequencing_type is valid
+    if barcode_type not in dict(Project.BARCODE_TYPES).keys():
+        return JsonResponse({'error': 'Invalid barcode_type'}, status=400)
 
     # Check if title and description are not empty and within character limits
     if not title or len(title) > 64:
@@ -539,7 +545,7 @@ def create_project(request):
 
     # Create the project
     new_project = Project(user=request.user, title=title, description=description,
-                      project_type=project_type, sequencing_type=sequencing_type)
+                      project_type=project_type, sequencing_type=sequencing_type, barcode_type=barcode_type)
     new_project.save()
 
     return JsonResponse({'success': 'Project created successfully', 'redirect': '/pages/starter?pid=' + str(new_project.id)})
@@ -556,7 +562,7 @@ def update_project(request):
     description = data.get('description', '').strip()
 
     # Check if title and description are not empty and within character limits
-    if not title or len(title) > 64:
+    if len(title) > 64:
         return JsonResponse({'error': 'Title must be non-empty and at most 64 characters'}, status=400)
 
     if len(description) > 160:
@@ -568,8 +574,10 @@ def update_project(request):
         return JsonResponse({'error': 'Project with the same title already exists'}, status=400)
 
     # Create the project
-    project.title = title
-    project.description = description
+    if title:
+        project.title = title
+    if description:
+        project.description = description
     project.save()
     return JsonResponse({'success': 'Project updated successfully'})
 
@@ -590,6 +598,7 @@ def user_projects(request):
     for project in projects:
         serialized_project = {
             'id': project.id,
+            'username': project.user.username,
             'title': project.title,
             'description': project.description,
             'sequencing_type': project.sequencing_type,
@@ -627,6 +636,7 @@ def project_info(request):
             or data_file.order_id
             or (data_file.reference_data.id if data_file.reference_data else None)
             or (data_file.sample_data.id if data_file.sample_data else None)
+            or (data_file.nanopore_seq_id.id if data_file.nanopore_seq_id else None)
         )
         consensus_data = ConsensusData.objects.filter(consensus=project_data_file.data_file).last()
         quality_scores = get_quality_scores(project_data_file.data_file.associated_abi.name) if data_file.associated_abi else None
@@ -721,7 +731,9 @@ def project_info(request):
     nanopore = []
     for pns in nanopore_sequences:
         nanopore_sequence = pns.nanopore_sequence
-
+        sample_set = NanoporeSampleSet.objects.filter(directory__in=[
+            nanopore_sequence.file.name[:len(sample_set.directory)] for sample_set in NanoporeSampleSet.objects.all()
+        ]).first()
         # Retrieve related FastpResult and FastpJob (if they exist)
         fastp_result = FastpResult.objects.filter(project_nanopore_sequence=pns).first()
         fastp_jobs = getattr(nanopore_sequence, 'related_fastp_jobs', [])
@@ -733,7 +745,8 @@ def project_info(request):
         medaka_jobs = getattr(nanopore_sequence, 'related_medaka_jobs', [])
         nanopore.append({
             'nanopore_sequence_id': nanopore_sequence.id,
-            'sample': nanopore_sequence.file.name.startswith("fastq_files/sample/"),
+            'sample_set_name': sample_set.name if sample_set else None,
+            'sample_set': True if sample_set else False,
             'name': nanopore_sequence.name,
             'fastp_result': {
                 'filtered_file': fastp_result.filtered_file.url if fastp_result else None,
@@ -765,9 +778,11 @@ def project_info(request):
     serialized_muscle_data = None
     phylip_nj_job = False
     phylip_nj_data = None
+    phylip_nj_data_id = None
     phylip_nj_outgroup = ""
     phylip_ml_job = False
     phylip_ml_data = None
+    phylip_ml_data_id = None
     phylip_ml_outgroup = ""
 
     if has_muscle_job:
@@ -790,11 +805,13 @@ def project_info(request):
             if phylip_nj_job:
                 phylip_nj_outgroup = phylip_nj_job.outgroup
                 phylip_nj_data = PhylipNJData.objects.filter(phylipnj_job=phylip_nj_job).first()
+                phylip_nj_data_id = phylip_nj_data.id if phylip_nj_data else None
                 phylip_nj_data = phylip_nj_data.outtree if phylip_nj_data else None
                 phylip_nj_job = True
             if phylip_ml_job:
                 phylip_ml_outgroup = phylip_ml_job.outgroup
                 phylip_ml_data = PhylipMLData.objects.filter(phylipml_job=phylip_ml_job).first()
+                phylip_ml_data_id = phylip_ml_data.id if phylip_ml_data else None
                 phylip_ml_data = phylip_ml_data.outtree if phylip_ml_data else None
                 phylip_ml_job = True
             # Query the MuscleSimilarity records associated with the muscle_data
@@ -844,14 +861,17 @@ def project_info(request):
         'muscle_data': serialized_muscle_data,
         'phylip_nj_job': phylip_nj_job,
         'phylip_nj_data': phylip_nj_data,
+        'phylip_nj_data_id': phylip_nj_data_id,
         'phylip_nj_outgroup': phylip_nj_outgroup,
         'phylip_ml_job': phylip_ml_job,
         'phylip_ml_data': phylip_ml_data,
+        'phylip_ml_data_id': phylip_ml_data_id,
         'phylip_ml_outgroup': phylip_ml_outgroup,
         'title': project.title,
         'description': project.description,
         'sequencing_type': project.sequencing_type,
         'project_type': project.project_type,
+        'barcode_type': project.barcode_type,
         'created_date': project.created.strftime('%Y-%m-%d'),  # Format date as YYYY-MM-DD
         'username': project.user.username,
         'uid': project.user.id,
@@ -893,6 +913,17 @@ def delete_project(request):
     project.deleted = True
     project.save()
     return JsonResponse({'success': 'Project deleted successfully'}, status=200)
+
+def toggle_project_share_status(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    project.public = not project.public
+    project.save()
+    return JsonResponse({'success': 'Project share status toggled successfully'}, status=200)
 
 def download_and_create_datafiles(request):
     parsed_data = parse_user_project_data(request)
@@ -967,6 +998,7 @@ def download_and_create_datafiles(request):
     return JsonResponse({'success': 'Data files created successfully.', 'message': warning_message}, status=200)
 
 def process_abi_file(request):
+    PROTOCOL = request.scheme + "://"
     # Check if the request method is not POST
     if request.method != 'POST':
         return JsonResponse({'error': 'Invalid request method'}, status=405)
@@ -1047,6 +1079,7 @@ def check_job_status(request):
     return JsonResponse({'error': 'File not provided'}, status=200)
 
 def trim_project_sequences(request):
+    PROTOCOL = request.scheme + "://"
     parsed_data = parse_user_project_data(request)
     if 'error' in parsed_data:
         return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
@@ -1088,6 +1121,7 @@ def trim_sequence(request):
     return JsonResponse(trim_result)
 
 def suggest_trim(request):
+    PROTOCOL = request.scheme + "://"
     parsed_data = parse_user_project_data(request)
     if 'error' in parsed_data:
         return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
@@ -1165,6 +1199,7 @@ def undo_consensus(request):
     return JsonResponse({'status': 'success', 'message': 'Consensus undone.'}, status=200)
 
 def blast_sequence(request):
+    PROTOCOL = request.scheme + "://"
     parsed_data = parse_user_project_data(request)
     if 'error' in parsed_data:
         return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
@@ -1228,6 +1263,7 @@ def blast_sequence(request):
     return JsonResponse(response, status=200)
 
 def phylip_nj_sequence(request):
+    PROTOCOL = request.scheme + "://"
     parsed_data = parse_user_project_data(request)
     if 'error' in parsed_data:
         return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
@@ -1246,6 +1282,7 @@ def phylip_nj_sequence(request):
     return JsonResponse(phylip_nj_result)
 
 def phylip_ml_sequence(request):
+    PROTOCOL = request.scheme + "://"
     parsed_data = parse_user_project_data(request)
     if 'error' in parsed_data:
         return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
@@ -1264,6 +1301,7 @@ def phylip_ml_sequence(request):
     return JsonResponse(phylip_ml_result)
 
 def muscle_sequence(request):
+    PROTOCOL = request.scheme + "://"
     parsed_data = parse_user_project_data(request)
     if 'error' in parsed_data:
         return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
@@ -1279,6 +1317,7 @@ def muscle_sequence(request):
     return JsonResponse(muscle_result)
 
 def consense_sequence(request):
+    PROTOCOL = request.scheme + "://"
     parsed_data = parse_user_project_data(request)
     if 'error' in parsed_data:
         return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
@@ -1298,13 +1337,100 @@ def consense_sequence(request):
         return JsonResponse({'error':'One of the selected files does not exist'}, status=404)
     file1_reverse = file1_read_type == "R"
     file2_reverse = file2_read_type == "R"
-    dataFile_1.read_type = "R" if file1_reverse else "F"
+    if file1_reverse and not file2_reverse:
+        dataFile_1.read_type = "R"
+        dataFile_2.read_type = "F"
+    else:
+        dataFile_1.read_type = "F"
+        dataFile_2.read_type = "R"
+
     dataFile_1.save()
-    dataFile_2.read_type = "R" if file2_reverse else "F"
     dataFile_2.save()
     #consense_result = consense(request.user, PROTOCOL + request.get_host()+'/backend', dataFile_1, dataFile_2, file1_reverse, file2_reverse, project.id)
     consense_result = local_consense(PROTOCOL + request.get_host()+'/backend', dataFile_1, dataFile_2, file1_reverse, file2_reverse, project, pairLabel)
     return JsonResponse(consense_result)
+
+def auto_pair_sequences(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    PROTOCOL = request.scheme + "://"
+
+    # Step 1: Get all consensus DataFiles for this project
+    consensus_files_in_project = ProjectDataFile.objects.filter(
+        project=project,
+        data_file__read_type__in=["C"]
+    ).values_list('data_file_id', flat=True)
+
+    # Step 2: Get forward/reverse IDs used in those consensus files
+    used_in_project_consensus_ids = DataFile.objects.filter(
+        id__in=consensus_files_in_project
+    ).values_list('forward_read_id', 'reverse_read_id')
+
+    # Step 3: Flatten the list and remove Nones
+    excluded_ids = set(
+        x for pair in used_in_project_consensus_ids for x in pair if x is not None
+    )
+
+    # Step 4: Select unpaired, F/R files not used in this project’s consensus
+    project_data_files = ProjectDataFile.objects.filter(
+        project=project,
+        data_file__read_type__in=["F", "R"],
+    ).exclude(
+        data_file__id__in=excluded_ids
+    ).select_related('data_file')
+
+    data_files = [pdf.data_file for pdf in project_data_files]
+    data_files.sort(key=lambda df: df.name.lower())
+
+    used_ids = set()
+    paired_count = 0
+
+    for i in range(len(data_files)):
+        df1 = data_files[i]
+        if df1.id in used_ids:
+            continue
+
+        name1 = df1.name
+        for j in range(i + 1, len(data_files)):
+            df2 = data_files[j]
+            if df2.id in used_ids:
+                continue
+
+            name2 = df2.name
+            lshortest = min(len(name1), len(name2))
+            mismatch = ''
+            k = 0
+            for k in range(lshortest):
+                if name1[k] != name2[k]:
+                    mismatch = name1[k] + name2[k]
+                    break
+
+            if k > lshortest / 2 and mismatch and mismatch[0].upper() in 'RF' and mismatch[1].upper() in 'RF':
+                file1_is_reverse = mismatch[0].upper() == 'R'
+                file2_is_reverse = mismatch[1].upper() == 'R'
+
+                df1.read_type = 'R' if file1_is_reverse else 'F'
+                df2.read_type = 'R' if file2_is_reverse else 'F'
+                df1.save()
+                df2.save()
+
+                local_consense(
+                    PROTOCOL + request.get_host() + '/backend',
+                    df1, df2,
+                    file1_is_reverse, file2_is_reverse,
+                    project,
+                    pairLabel=None
+                )
+
+                used_ids.update({df1.id, df2.id})
+                paired_count += 1
+                break  # stop looking for matches for df1
+
+    return JsonResponse({'status': 'done', 'paired_count': paired_count})
 
 def upload_fastq_directory(fastq_dir, project, base_path = None, skip_root = False):
     """
@@ -1765,6 +1891,7 @@ def upload_blast_results(request):
     return JsonResponse({'message': 'Blast results uploaded successfully.', 'sequences_added': sequences_added, 'warnings': warnings}, status=201)
 
 def process_reference_data(request):
+    PROTOCOL = request.scheme + "://"
     parsed_data = parse_user_project_data(request)
     if 'error' in parsed_data:
         return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
@@ -2122,6 +2249,7 @@ def get_azenta_file_quality(request):
     return JsonResponse({'success': 'Quality data checked.', 'quality_map': quality_map}, status=200)
 
 def upload_sanger_files(request):
+    PROTOCOL = request.scheme + "://"
     if request.method != 'POST':
         return JsonResponse({'error': 'Invalid request method, only POST allowed'}, status=405)
     try:
@@ -2497,6 +2625,8 @@ def get_filtered_user_datafiles(request, filter_dict, output_name):
         # Get user_id from query parameters
         user_id = request.GET.get('user_id')
         if not user_id:
+            user_id = request.user.id if request.user else None
+        if not user_id:
             return JsonResponse({'error': 'Missing user_id parameter'}, status=400)
 
         try:
@@ -2757,3 +2887,194 @@ def duplicate_datafiles(request):
         return JsonResponse({"status": "success", "new_datafile_ids": new_datafiles, "warnings": warnings}, status=200)
     else:
         return JsonResponse({"error": "No datafiles were able to be added.", "warnings": warnings}, status=400)
+
+def get_phylip_outtree(request, method, data_id):
+    if method == 'nj':
+        try:
+            data = PhylipNJData.objects.get(id=data_id)
+        except PhylipNJData.DoesNotExist:
+            raise Http404
+    elif method == 'ml':
+        try:
+            data = PhylipMLData.objects.get(id=data_id)
+        except PhylipMLData.DoesNotExist:
+            raise Http404
+    else:
+        raise Http404
+
+    response = HttpResponse(data.outtree, content_type='text/plain')
+    response['Content-Disposition'] = f'attachment; filename="{method}_{data_id}.newick"'
+    return response
+
+def rename_sanger_file(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    file_id = data.get('sangerSeqId')
+    seq_name = data.get('seqName')
+
+    if not file_id:
+        return JsonResponse({'error': 'file_id is required'}, status=400)
+
+    # Get the project and data file
+    try:
+        data_file = DataFile.objects.get(id=file_id)
+    except DataFile.DoesNotExist:
+        return JsonResponse({'error': 'Data file not found'}, status=404)
+
+    # Verify the file belongs to the project
+    if not ProjectDataFile.objects.filter(project=project, data_file=data_file).exists():
+        return JsonResponse({'error': 'Data file does not belong to this project'}, status=403)
+
+    # Check if the name already exists in the project
+    if ProjectDataFile.objects.filter(
+        project=project,
+        data_file__name=seq_name
+    ).exclude(data_file_id=file_id).exists():
+        return JsonResponse({'error': f"A sequence with name '{seq_name}' already exists in this project, please choose a new name or rename the project file"}, status=400)
+
+    # Rename the file
+    data_file.name = seq_name
+    data_file.save()
+
+    return JsonResponse({'success': 'Sequence renamed successfully'})
+
+def rename_sanger_file(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    file_id = data.get('sangerSeqId')
+    seq_name = data.get('seqName')
+
+    if not file_id:
+        return JsonResponse({'error': 'file_id is required'}, status=400)
+
+    # Get the project and data file
+    try:
+        data_file = DataFile.objects.get(id=file_id)
+    except DataFile.DoesNotExist:
+        return JsonResponse({'error': 'Data file not found'}, status=404)
+
+    if data_file.source == "sample" or data_file.source == "reference":
+        return JsonResponse({'error': 'You cannot rename sample or reference files'}, status=400)
+
+    # Verify the file belongs to the project
+    if not ProjectDataFile.objects.filter(project=project, data_file=data_file).exists():
+        return JsonResponse({'error': 'Data file does not belong to this project'}, status=403)
+
+    # Check if the name already exists in the project
+    if ProjectDataFile.objects.filter(
+        project=project,
+        data_file__name=seq_name
+    ).exclude(data_file_id=file_id).exists():
+        return JsonResponse({'error': f"A sequence with name '{seq_name}' already exists in this project, please choose a new name or rename the project file"}, status=400)
+
+    # Rename the file
+    data_file.name = seq_name
+    data_file.save()
+
+    return JsonResponse({'success': 'Sequence renamed successfully'})
+
+
+def delete_sanger_file(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    file_id = data.get('sangerSeqId')
+
+    if not file_id:
+        return JsonResponse({'error': 'file_id is required'}, status=400)
+
+    # Get the project and data file
+    try:
+        data_file = DataFile.objects.get(id=file_id)
+    except DataFile.DoesNotExist:
+        return JsonResponse({'error': 'Data file not found'}, status=404)
+
+    project_data_file = ProjectDataFile.objects.filter(project=project, data_file=data_file).first()
+
+    # Verify the file belongs to the project
+    if not project_data_file:
+        return JsonResponse({'error': 'Data file does not belong to this project'}, status=403)
+
+    if ProjectDataFile.objects.filter(data_file=data_file).count() < 2 and data_file.source != "sample" and data_file.source != "reference":
+        if data_file.associated_abi:
+            os.remove(data_file.associated_abi.name)
+        if data_file.associated_fasta:
+            os.remove(data_file.associated_fasta.name)
+        data_file.delete()
+    project_data_file.delete()
+    return JsonResponse({'success': 'Sequence removed successfully'})
+
+def delete_nanopore_file(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    file_id = data.get('nanoporeSeqId')
+
+    if not file_id:
+        return JsonResponse({'error': 'file_id is required'}, status=400)
+
+    # Get the project and data file
+    try:
+        nanopore_sequence = NanoporeSequence.objects.get(id=file_id)
+    except NanoporeSequence.DoesNotExist:
+        return JsonResponse({'error': 'Nanopore sequence not found'}, status=404)
+
+    pns = ProjectNanoporeSequence.objects.filter(project=project, nanopore_sequence=nanopore_sequence).first()
+
+    # Verify the file belongs to the project
+    if not pns:
+        return JsonResponse({'error': 'Nanopore sequence does not belong to this project'}, status=403)
+
+    data_files = DataFile.objects.filter(source='nanopore', nanopore_seq_id=nanopore_sequence)
+    ProjectDataFile.objects.filter(project=project, data_file__in=data_files).delete()
+    data_files.delete()
+    FastpJob.objects.filter(nanopore_sequence=nanopore_sequence, project=project).delete()
+    PorechopJob.objects.filter(nanopore_sequence=nanopore_sequence, project=project).delete()
+    MedakaJob.objects.filter(nanopore_sequence=nanopore_sequence, project=project).delete()
+
+    directories = NanoporeSampleSet.objects.values_list('directory', flat=True)
+    in_sample_directory = any(nanopore_sequence.file.name.startswith(dir) for dir in directories)
+    if not in_sample_directory and ProjectNanoporeSequence.objects.filter(nanopore_sequence=nanopore_sequence).count() < 2:
+        nanopore_sequence.delete()
+    pns.delete()
+    return JsonResponse({'success': 'Sequence removed successfully'})
+
+def get_tutorial_status(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'User is not authenticated'}, status=401)
+
+    pid = request.GET.get('pid')
+    # Retrieve project info for the current authenticated user
+    try:
+        project = Project.objects.filter(id=pid, user=request.user)
+    except ValueError:
+        return JsonResponse({'error': 'Project not found'}, status=404)
+    if not project:
+        return JsonResponse({'error': 'Project not found'}, status=404)
+    else:
+        project = project.first()
+
+    other_projects_exist = Project.objects.filter(
+        user=request.user,
+        project_type=project.project_type,
+        sequencing_type=project.sequencing_type,
+    ).exclude(id=project.id).exists()
+
+    return JsonResponse({
+        "other_projects_exist": other_projects_exist,
+        "tutorial_disabled": False,
+    })

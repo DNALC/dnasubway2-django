@@ -94,6 +94,32 @@ class UserProfile(models.Model):
     def __str__(self):
         return f"{self.user.username}'s profile"
 
+class TutorialSettings(models.Model):
+    user_profile = models.OneToOneField(UserProfile, on_delete=models.CASCADE)
+
+    disable_phy_tutorial = models.BooleanField(default=False)
+    disable_ngs_tutorial = models.BooleanField(default=False)
+    disable_ub_tutorial = models.BooleanField(default=False)
+    disable_nanopore_phy_tutorial = models.BooleanField(default=False)
+
+    def is_disabled(self, project):
+        key = self._get_key(project)
+        return getattr(self, key, False)
+
+    def disable(self, project):
+        key = self._get_key(project)
+        setattr(self, key, True)
+        self.save()
+
+    def _get_key(self, project):
+        if project.project_type == 'PHY' and project.sequencing_type == 'nanopore':
+            return 'disable_nanopore_phy_tutorial'
+        return {
+            'PHY': 'disable_phy_tutorial',
+            'NGS': 'disable_ngs_tutorial',
+            'UB': 'disable_ub_tutorial',
+        }.get(project.project_type)
+
 class PasswordResetToken(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     token = models.CharField(max_length=64, unique=True)
@@ -123,6 +149,17 @@ class Project(models.Model):
         ('UB', 'uBiome')
     ]
     project_type = models.CharField(max_length=3, choices=PROJECT_TYPES, default='phylogenetics')
+    BARCODE_TYPES = [
+        ('DNA', 'DNA'),
+        ('mtDNA', 'mtDNA'),
+        ('Viral', 'Viral'),
+        ('rbcL', 'rbcL'),
+        ('COI', 'COI'),
+        ('16S', '16S'),
+        ('ITS', 'ITS'),
+        ('Other', 'Other')
+    ]
+    barcode_type = models.CharField(max_length=8, choices=BARCODE_TYPES, default='Other')
     public = models.BooleanField(default=False)
     deleted = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
@@ -136,6 +173,13 @@ class Project(models.Model):
 
     def __str__(self):
         return self.title
+
+class NanoporeSequence(models.Model):
+    name = models.CharField(max_length=255)
+    file = models.FileField(upload_to='nanopore_sequences/')
+
+    def __str__(self):
+        return self.name
 
 class DataFile(models.Model):
     # Foreign key for the user who uploaded the file
@@ -192,6 +236,7 @@ class DataFile(models.Model):
     accession_number = models.CharField(max_length=100, null=True, blank=True)
     order_id = models.IntegerField(null=True, blank=True)
     source_file_id = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
+    nanopore_seq_id = models.ForeignKey(NanoporeSequence, on_delete=models.SET_NULL, null=True, blank=True)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
@@ -384,13 +429,6 @@ class NanoporeSampleSet(models.Model):
     name = models.CharField(max_length=255)
     category = models.CharField(max_length=64, default='')
     directory = models.CharField(max_length=500)
-
-    def __str__(self):
-        return self.name
-
-class NanoporeSequence(models.Model):
-    name = models.CharField(max_length=255)
-    file = models.FileField(upload_to='nanopore_sequences/')
 
     def __str__(self):
         return self.name
