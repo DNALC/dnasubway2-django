@@ -1412,13 +1412,13 @@ def auto_pair_sequences(request):
             if k > lshortest / 2 and mismatch and mismatch[0].upper() in 'RF' and mismatch[1].upper() in 'RF':
                 file1_is_reverse = mismatch[0].upper() == 'R'
                 file2_is_reverse = mismatch[1].upper() == 'R'
+                if not df1.reads or not df2.reads:
+                    continue
 
                 df1.read_type = 'R' if file1_is_reverse else 'F'
                 df2.read_type = 'R' if file2_is_reverse else 'F'
                 df1.save()
                 df2.save()
-                if not df1.reads or not df2.reads:
-                    continue
 
                 local_consense(
                     PROTOCOL + request.get_host() + '/backend',
