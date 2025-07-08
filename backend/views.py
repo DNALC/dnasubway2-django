@@ -123,6 +123,7 @@ def csrf_failure(request, reason=""):
     return JsonResponse({'error': 'CSRF failed', 'redirect': '/'}, status=403)
 
 # This is the endpoint for user registration
+@csrf_exempt
 def register(request):
     # POST JSON data
     parsed_data = parse_data(request)
