@@ -4,6 +4,7 @@ from Bio.motifs import Motif
 from Bio.Align.AlignInfo import SummaryInfo
 from collections import Counter
 import os
+import re
 import subprocess
 from celery import shared_task
 from ansi2html import Ansi2HTMLConverter
@@ -173,7 +174,8 @@ def run_medaka_task(project_nanopore_sequence_id):
                 nanopore_seq_id=project_nanopore_sequence.nanopore_sequence,
             )
             new_filename = f"{data_file.id}.fasta"
-            fasta_content = ContentFile(f">{data_file.name}\n{data_file.reads}\n")
+            header = re.sub(r'\W+', '_', data_file.name)
+            fasta_content = ContentFile(f">{header}\n{data_file.reads}\n")
             new_fasta_file_path = default_storage.save(f"fasta_files/{new_filename}", fasta_content)
             data_file.associated_fasta.name = new_fasta_file_path
             data_file.save()
