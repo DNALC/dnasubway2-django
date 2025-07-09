@@ -122,6 +122,19 @@ def parse_user_project_data(request):
 def csrf_failure(request, reason=""):
     return JsonResponse({'error': 'CSRF failed', 'redirect': '/'}, status=403)
 
+
+@csrf_exempt
+def registered_users(request):
+    users = User.objects.exclude(username__startswith='guest_')
+
+    usernames = users.values_list('username', flat=True)
+    emails = users.filter(~Q(email=''), email__isnull=False).values_list('email', flat=True)
+
+    return JsonResponse({
+        'usernames': list(usernames),
+        'emails': list(emails),
+    })
+
 # This is the endpoint for user registration
 @csrf_exempt
 def register(request):

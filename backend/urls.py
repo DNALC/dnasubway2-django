@@ -11,6 +11,7 @@ urlpatterns = [
     path('backend/profile', get_user_fields, name='profile'),
     path('backend/guest', create_guest_user, name='guest'),
     path('backend/project', create_project, name='project'),
+    path('backend/registered_users', registered_users, name='registered_users'),
     path('backend/user_projects', user_projects, name='user_projects'),
     path('backend/public_projects', public_projects, name='public_projects'),
     path('backend/dnalc_import', download_and_create_datafiles, name='dnalc_import'),
