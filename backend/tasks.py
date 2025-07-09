@@ -315,6 +315,8 @@ def calculate_conservation_and_variation(msa, consensus):
         conservation = 1.0
         base = consensus[base_location]
         for record in msa:
+            if record.id == "consensus":
+                continue
             align_base = record[base_location]
             if base == align_base and total_sequences <= MAX_SEQUENCES_FOR_SIMILARITY:
                 matches["consensus"][record.id] = matches["consensus"].get(record.id, 0) + 1
@@ -334,6 +336,8 @@ def calculate_conservation_and_variation(msa, consensus):
 
     if total_sequences <= MAX_SEQUENCES_FOR_SIMILARITY:
         for record in msa:
+            if record.id == "consensus":
+                continue
             matches["consensus"][record.id] = matches["consensus"][record.id] / len(record.seq.strip('-')) * 100
             matches["consensus"][record.id] = '{:.2f}'.format(round(matches["consensus"][record.id], 2))
             matches[record.id] = {"consensus": matches["consensus"][record.id]}
