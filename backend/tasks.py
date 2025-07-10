@@ -294,8 +294,57 @@ def run_blast_task(job_id, file_path, clade):
             "message": str(e)
         }
 
-def matching_letters(a, b):
-    return sum(a[i] != '-' and a[i] == b[i] for i in range(min(len(a), len(b))))
+VALID_BASES = {'A', 'T', 'G', 'C', 'N'}
+
+
+def get_trimmed_range(seq):
+    """Return start and end indexes (exclusive) that exclude leading and trailing '-' characters."""
+    seq_str = str(seq)
+    start = 0
+    end = len(seq_str)
+
+    while start < end and seq_str[start] == '-':
+        start += 1
+    while end > start and seq_str[end - 1] == '-':
+        end -= 1
+
+    return start, end
+
+def pairwise_trimmed_similarity(seq_a, seq_b):
+    """Align shorter (trimmed) sequence to same window in longer sequence and compare"""
+    a_start, a_end = get_trimmed_range(seq_a)
+    b_start, b_end = get_trimmed_range(seq_b)
+
+    a_span = a_end - a_start
+    b_span = b_end - b_start
+
+    if a_span <= b_span:
+        shorter, longer = seq_a, seq_b
+        start, end = a_start, a_end
+    else:
+        shorter, longer = seq_b, seq_a
+        start, end = b_start, b_end
+
+    trimmed_len = end - start
+    if trimmed_len <= 0:
+        return "N/A"
+
+    match_count = 0
+    gaps = 0
+    for i in range(trimmed_len):
+        base_s = shorter[start + i].upper()
+        base_l = longer[start + i].upper()
+        if base_s == "-" or base_l == "-":
+            gaps += 1
+        if base_s in VALID_BASES and base_s == base_l:
+            match_count += 1
+
+    denominator = trimmed_len - gaps
+    if denominator <= 0:
+        return "N/A"
+
+    similarity = match_count / denominator * 100
+    return '{:.2f}'.format(round(similarity, 2))
 
 def calculate_conservation_and_variation(msa, consensus):
     bases = ['A', 'C', 'T', 'G', 'N']
@@ -320,8 +369,6 @@ def calculate_conservation_and_variation(msa, consensus):
             if record.id == "consensus":
                 continue
             align_base = record[base_location]
-            if base == align_base and total_sequences <= MAX_SEQUENCES_FOR_SIMILARITY:
-                matches["consensus"][record.id] = matches["consensus"].get(record.id, 0) + 1
 
             if align_base in bases and base != align_base and align_base != "N":
                 conservation -= 1 / len(msa)
@@ -340,26 +387,20 @@ def calculate_conservation_and_variation(msa, consensus):
         for record in msa:
             if record.id == "consensus":
                 continue
-            matches["consensus"][record.id] = matches["consensus"][record.id] / len(record.seq.strip('-')) * 100
-            matches["consensus"][record.id] = '{:.2f}'.format(round(matches["consensus"][record.id], 2))
-            matches[record.id] = {"consensus": matches["consensus"][record.id]}
+
+            similarity = pairwise_trimmed_similarity(record.seq, consensus)
+            matches["consensus"][record.id] = similarity
+            matches[record.id] = {"consensus": similarity}
 
             for compared_record in msa:
                 if record.id != compared_record.id:
                     if compared_record.id not in matches[record.id]:
-                        matches[record.id][compared_record.id] = matching_letters(record, compared_record)
-                        matches[record.id][compared_record.id] /= (
-                            len(record) -
-                            max(len(record) - len(record.seq.lstrip('-')),
-                                len(compared_record) - len(compared_record.seq.lstrip('-'))) -
-                            max(len(record) - len(record.seq.rstrip('-')),
-                                len(compared_record) - len(compared_record.seq.rstrip('-')))
-                        )
-                        matches[record.id][compared_record.id] *= 100
-                        matches[record.id][compared_record.id] = '{:.2f}'.format(round(matches[record.id][compared_record.id], 2))
+                        similarity = pairwise_trimmed_similarity(record.seq, compared_record.seq)
+                        matches[record.id][compared_record.id] = similarity
 
                     if compared_record.id not in matches:
                         matches[compared_record.id] = {}
+
                     matches[compared_record.id][record.id] = matches[record.id][compared_record.id]
                 else:
                     matches[record.id][compared_record.id] = "-"
