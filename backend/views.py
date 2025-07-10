@@ -997,7 +997,8 @@ def download_and_create_datafiles(request):
         data_file.associated_abi.name = abi_file_path
         data_file.save()
 
-        fasta_content = ContentFile(f">{data_file.name}\n{data_file.reads}\n")
+        header = re.sub(r'\s+', '_', data_file.name)
+        fasta_content = ContentFile(f">{header}\n{data_file.reads}\n")
         fasta_file_name = f"{data_file.id}.fasta"
         fasta_file_path = default_storage.save(f"fasta_files/{fasta_file_name}", fasta_content)
         data_file.associated_fasta.name = fasta_file_path
@@ -1883,8 +1884,9 @@ def upload_blast_results(request):
             source_file_id=blast_result.blast_data.blast_file,
         )
 
+        header = re.sub(r'\s+', '_', accession)
         # Create the FASTA file content
-        fasta_content = f">{accession}\n{blast_result.sequence}"
+        fasta_content = f">{header}\n{blast_result.sequence}"
 
         # Generate a unique file name based on the data file ID
         fasta_file_name = f"{data_file.id}.fasta"
@@ -2045,7 +2047,8 @@ def process_reference_data(request):
                                 associated_abi=abi_file_path,
                                 trace_exists=True
                         )
-                        fasta_content = ContentFile(f">{new_data_file.name}\n{new_data_file.reads}\n")
+                        header = re.sub(r'\s+', '_', new_data_file.name)
+                        fasta_content = ContentFile(f">{header}\n{new_data_file.reads}\n")
                         fasta_file_name = f"{new_data_file.id}.fasta"
                         fasta_file_path = default_storage.save(f"fasta_files/{fasta_file_name}", fasta_content)
                         new_data_file.associated_fasta.name = fasta_file_path
@@ -2313,7 +2316,8 @@ def upload_sanger_files(request):
                         read_type='F',
                         source="upload",
                     )
-                    fasta_content = ContentFile(f">{data_file.name}\n{data_file.reads}\n")
+                    header = re.sub(r'\s+', '_', data_file.name)
+                    fasta_content = ContentFile(f">{header}\n{data_file.reads}\n")
                     fasta_file_name = f"{data_file.id}.fasta"
                     fasta_file_path = default_storage.save(f"fasta_files/{fasta_file_name}", fasta_content)
                     data_file.associated_fasta.name = fasta_file_path
@@ -2345,7 +2349,8 @@ def upload_sanger_files(request):
                 data_file.reads = sequence
                 data_file.associated_abi.name = abi_file_path
                 data_file.save()
-                fasta_content = ContentFile(f">{data_file.name}\n{data_file.reads}\n")
+                header = re.sub(r'\s+', '_', data_file.name)
+                fasta_content = ContentFile(f">{header}\n{data_file.reads}\n")
                 fasta_file_name = f"{data_file.id}.fasta"
                 fasta_file_path = default_storage.save(f"fasta_files/{fasta_file_name}", fasta_content)
                 data_file.associated_fasta.name = fasta_file_path
@@ -2444,7 +2449,8 @@ def upload_bold_data(request):
                 process_id=process_id,
             )
 
-            fasta_content = ContentFile(f">{data_file.name}\n{data_file.reads}\n")
+            header = re.sub(r'\s+', '_', data_file.name)
+            fasta_content = ContentFile(f">{header}\n{data_file.reads}\n")
             fasta_file_name = f"{data_file.id}.fasta"
             fasta_file_path = default_storage.save(f"fasta_files/{fasta_file_name}", fasta_content)
             data_file.associated_fasta.name = fasta_file_path
@@ -2531,7 +2537,8 @@ def upload_genbank_data(request):
             accession_number=accession_number,
         )
 
-        fasta_content = ContentFile(f">{data_file.name}\n{data_file.reads}\n")
+        header = re.sub(r'\s+', '_', data_file.name)
+        fasta_content = ContentFile(f">{header}\n{data_file.reads}\n")
         fasta_file_name = f"{data_file.id}.fasta"
         fasta_file_path = default_storage.save(f"fasta_files/{fasta_file_name}", fasta_content)
         data_file.associated_fasta.name = fasta_file_path
@@ -2598,7 +2605,8 @@ def upload_fasta_content(request):
             source="paste",
         )
 
-        fasta_content = ContentFile(f">{data_file.name}\n{data_file.reads}\n")
+        header = re.sub(r'\s+', '_', data_file.name)
+        fasta_content = ContentFile(f">{header}\n{data_file.reads}\n")
         fasta_file_name = f"{data_file.id}.fasta"
         fasta_file_path = default_storage.save(f"fasta_files/{fasta_file_name}", fasta_content)
         data_file.associated_fasta.name = fasta_file_path
