@@ -271,7 +271,8 @@ def job_status_check(job_uuid, current_status):
                     )
                     consense_file.forward_read = consense_job.forward_file
                     consense_file.reverse_read = consense_job.reverse_file
-                    consense_content = ContentFile(f">{consense_file.name}\n{consense_file.reads}\n")
+                    header = re.sub(r'\s+', '_', consense_file.name)
+                    consense_content = ContentFile(f">{header}\n{consense_file.reads}\n")
                     fasta_file_name = f"{consense_file.id}.fasta"
                     fasta_file_path = default_storage.save(f"fasta_files/{fasta_file_name}", consense_content)
                     consense_file.associated_fasta.name = fasta_file_path
@@ -893,7 +894,8 @@ def local_sequence_trim(dataFile, left_trim_amount, right_trim_amount):
     dataFile.left_trim = dataFile.left_trim + left_trim if dataFile.left_trim else left_trim
     dataFile.right_trim = right_trim + dataFile.right_trim if dataFile.right_trim else right_trim
     dataFile.save()
-    fasta_content = ContentFile(f">{dataFile.name}\n{dataFile.reads}\n")
+    header = re.sub(r'\s+', '_', dataFile.name)
+    fasta_content = ContentFile(f">{header}\n{dataFile.reads}\n")
     fasta_file_name = f"{dataFile.id}.fasta"
     fasta_file_path = f"fasta_files/{fasta_file_name}"
     # Check if the file already exists and update it, or save if not
@@ -920,7 +922,8 @@ def undo_sequence_trim(dataFile):
     dataFile.save()
 
     # Update the FASTA file with the restored sequence
-    fasta_content = ContentFile(f">{dataFile.name}\n{restored_sequence}\n")
+    header = re.sub(r'\s+', '_', dataFile.name)
+    fasta_content = ContentFile(f">{header}\n{restored_sequence}\n")
     fasta_file_name = f"{dataFile.id}.fasta"
     fasta_file_path = f"fasta_files/{fasta_file_name}"
 
@@ -1266,7 +1269,8 @@ def generate_consensus_from_datafile(hostname, datafile_1, datafile_2, datafile_
     )
     consensus_file.forward_read = forward_datafile
     consensus_file.reverse_read = reverse_datafile
-    content = ContentFile(f">{consensus_file.name}\n{consensus_file.reads}\n")
+    header = re.sub(r'\s+', '_', consensus_file.name)
+    content = ContentFile(f">{header}\n{consensus_file.reads}\n")
     fasta_file_name = f"{consensus_file.id}.fasta"
     fasta_file_path = default_storage.save(f"fasta_files/{fasta_file_name}", content)
     consensus_file.associated_fasta.name = fasta_file_path
