@@ -1210,6 +1210,12 @@ def undo_consensus(request):
     if not project_data_file:
         return JsonResponse({'error': 'No such project file'}, status=404)
 
+    if ProjectDataFile.objects.filter(data_file=dataFile).count() < 2 and dataFile.source != "sample" and dataFile.source != "reference":
+        if dataFile.associated_abi:
+            os.remove(dataFile.associated_abi.name)
+        if dataFile.associated_fasta:
+            os.remove(dataFile.associated_fasta.name)
+        dataFile.delete()
     project_data_file.delete()
 
     return JsonResponse({'status': 'success', 'message': 'Consensus undone.'}, status=200)
