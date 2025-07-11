@@ -2395,7 +2395,7 @@ def upload_bold_data(request):
     if project.user != request.user:
         return JsonResponse({'error': 'You do not have permission to add to this project.'}, status=403)
 
-    API_KEY = "150B65B9-A171-4736-B137-88F7B2A438E1"
+    API_KEY = settings.BOLD_API_KEY
     # Construct the API URL
     api_url = (
         "https://data.boldsystems.org/api/records/retrieve?"
