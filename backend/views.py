@@ -1012,6 +1012,7 @@ def download_and_create_datafiles(request):
 
     return JsonResponse({'success': 'Data files created successfully.', 'message': warning_message}, status=200)
 
+@csrf_exempt
 def process_abi_file(request):
     PROTOCOL = request.scheme + "://"
     # Check if the request method is not POST
