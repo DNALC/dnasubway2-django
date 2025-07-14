@@ -261,6 +261,7 @@ def register(request):
     return JsonResponse({'success': 'User registered successfully', 'redirect': '/'}, status=201)
 
 # This is the endpoint for user login
+@csrf_exempt
 def login_view(request):
     # POST JSON data
     parsed_data = parse_data(request)
