@@ -1,5 +1,6 @@
 from django.conf import settings
 from Bio import SeqIO
+from Bio.Seq import Seq
 from io import BytesIO, StringIO
 import json
 from urllib.request import urlopen
@@ -186,14 +187,36 @@ def fake_tapis_job(user, appId, params, projectId):
 
 def multi_seq_muscle_jobs(output_file, file_ids):
     with open(output_file, 'w') as outfile:
-        for idx, file_id in enumerate(file_ids):
+        for file_id in file_ids:
             dataFile = DataFile.objects.get(id=file_id)
-            associated_fasta_file = dataFile.associated_fasta.name
-            with open(associated_fasta_file, 'r') as infile:
-                content = infile.read()
-                if not content.endswith('\n'):
-                    content += '\n'
-                outfile.write(content)
+            fasta_path = dataFile.associated_fasta.path
+
+            with open(fasta_path, 'r') as infile:
+                header = None
+                sequence_lines = []
+
+                for line in infile:
+                    line = line.strip()
+                    if line.startswith(">"):
+                        if header:
+                            # Write previous record
+                            sequence = "".join(sequence_lines)
+                            if dataFile.read_type == "R":
+                                sequence = str(Seq(sequence).reverse_complement())
+                            outfile.write(header + "\n")
+                            outfile.write(sequence + "\n")
+                        header = line
+                        sequence_lines = []
+                    else:
+                        sequence_lines.append(line)
+
+                # Write last record
+                if header:
+                    sequence = "".join(sequence_lines)
+                    if dataFile.read_type == "R":
+                        sequence = str(Seq(sequence).reverse_complement())
+                    outfile.write(header + "\n")
+                    outfile.write(sequence + "\n")
     return output_file
 
 # Retrieve job status

@@ -60,6 +60,7 @@ urlpatterns = [
     path('backend/phylip/<str:method>/<int:data_id>/', get_phylip_outtree, name='get_phylip_outtree'),
     path('backend/rename_sanger_file', rename_sanger_file, name='rename_sanger_file'),
     path('backend/delete_sanger_file', delete_sanger_file, name='delete_sanger_file'),
+    path('backend/toggle_sequence_read_type', toggle_sequence_read_type, name='toggle_sequence_read_type'),
     path('backend/delete_nanopore_file', delete_nanopore_file, name='delete_nanopore_file'),
     path('backend/tutorial_status', get_tutorial_status, name='get_tutorial_status'),
 ]

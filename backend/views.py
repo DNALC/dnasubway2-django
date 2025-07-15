@@ -1211,6 +1211,12 @@ def undo_consensus(request):
     if not project_data_file:
         return JsonResponse({'error': 'No such project file'}, status=404)
 
+    if dataFile.forward_read:
+        dataFile.forward_read.read_type = "F"
+        dataFile.forward_read.save()
+    if dataFile.reverse_read:
+        dataFile.reverse_read.read_type = "F"
+        dataFile.reverse_read.save()
     if ProjectDataFile.objects.filter(data_file=dataFile).count() < 2 and dataFile.source != "sample" and dataFile.source != "reference":
         if dataFile.associated_abi:
             os.remove(dataFile.associated_abi.name)
@@ -3013,6 +3019,39 @@ def rename_sanger_file(request):
 
     return JsonResponse({'success': 'Sequence renamed successfully'})
 
+def toggle_sequence_read_type(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    file_id = data.get('sangerSeqId')
+
+    if not file_id:
+        return JsonResponse({'error': 'file_id is required'}, status=400)
+
+    # Get the project and data file
+    try:
+        data_file = DataFile.objects.get(id=file_id)
+    except DataFile.DoesNotExist:
+        return JsonResponse({'error': 'Data file not found'}, status=404)
+
+    project_data_file = ProjectDataFile.objects.filter(project=project, data_file=data_file).first()
+
+    # Verify the file belongs to the project
+    if not project_data_file:
+        return JsonResponse({'error': 'Data file does not belong to this project'}, status=403)
+
+    if data_file.read_type == "F":
+        data_file.read_type = "R"
+        data_file.save()
+        return JsonResponse({'success': 'Sequence read type now reverse'})
+    if data_file.read_type == "R":
+        data_file.read_type = "F"
+        data_file.save()
+        return JsonResponse({'success': 'Sequence read type now forward'})
+    return JsonResponse({'success': 'Sequence read type toggled'})
 
 def delete_sanger_file(request):
     parsed_data = parse_user_project_data(request)
@@ -3037,6 +3076,13 @@ def delete_sanger_file(request):
     # Verify the file belongs to the project
     if not project_data_file:
         return JsonResponse({'error': 'Data file does not belong to this project'}, status=403)
+
+    if data_file.forward_read:
+        data_file.forward_read.read_type = "F"
+        data_file.forward_read.save()
+    if data_file.reverse_read:
+        data_file.reverse_read.read_type = "F"
+        data_file.reverse_read.save()
 
     if ProjectDataFile.objects.filter(data_file=data_file).count() < 2 and data_file.source != "sample" and data_file.source != "reference":
         if data_file.associated_abi:
