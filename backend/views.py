@@ -313,8 +313,16 @@ def request_password_reset(request):
     username = data.get('username')
     email = data.get('email')
 
+    if not username and not email:
+        return JsonResponse({'error': 'Username or email is required.'}, status=400)
+
     try:
-        user = User.objects.get(username=username, email=email)
+        if username and email:
+            user = User.objects.get(username=username, email=email)
+        elif username:
+            user = User.objects.get(username=username)
+        elif email:
+            user = User.objects.get(email=email)
     except User.DoesNotExist:
         return JsonResponse({'error': 'User not found'}, status=404)
 
