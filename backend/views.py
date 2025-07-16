@@ -346,8 +346,8 @@ def send_password_reset_email(to_email, token):
 
         # Email data
         subject = 'Password Reset'
-        text = f"Use this link to reset your password: {getattr(settings, 'REACT_URL')}/reset?code={token}"
-        body = f"Use this link to reset your password: <a href=\"{getattr(settings, 'REACT_URL')}/reset?code={token}\">{getattr(settings, 'REACT_URL')}/reset?code={token}</a>"
+        text = f"Use this link to reset your password: {getattr(settings, 'REACT_URL')}reset?code={token}"
+        body = f"Use this link to reset your password: <a href=\"{getattr(settings, 'REACT_URL')}reset?code={token}\">{getattr(settings, 'REACT_URL')}/reset?code={token}</a>"
         data = {
             'from': from_email,
             'to': to_email,
