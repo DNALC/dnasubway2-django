@@ -362,8 +362,8 @@ def send_password_reset_email(to_email, token):
 
         # Email data
         subject = '[DNA Subway 2.0] Reset your Password'
-        text = f"Someone, perhaps you, has requested to change the password for this account.\nIf it wasn't you, you may disregard this message.\n\nUse this link to reset your password: {getattr(settings, 'REACT_URL')}reset?code={token}"
-        body = f"<p>Someone, perhaps you, has requested to change the password for this account.<br />If it wasn't you, you may disregard this message.</p><p>Use this link to reset your password: <a href=\"{getattr(settings, 'REACT_URL')}reset?code={token}\">{getattr(settings, 'REACT_URL')}reset?code={token}</a></p>"
+        text = f"Someone, perhaps you, has requested to change the password for this account.\nIf it wasn't you, you may disregard this message.\n\nUse this link to reset your password: {getattr(settings, 'REACT_URL')}reset/{token}"
+        body = f"<p>Someone, perhaps you, has requested to change the password for this account.<br />If it wasn't you, you may disregard this message.</p><p>Use this link to reset your password: <a href=\"{getattr(settings, 'REACT_URL')}reset/{token}\">{getattr(settings, 'REACT_URL')}reset/{token}</a></p>"
         data = {
             'from': from_email,
             'to': to_email,
