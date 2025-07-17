@@ -2255,6 +2255,11 @@ def rename_nanopore_file(request):
     nanopore_sequence.name = seq_name
     nanopore_sequence.save()
 
+    DataFile.objects.filter(
+        source='nanopore',
+        nanopore_seq_id=nanopore_sequence.id
+    ).update(name=seq_name)
+
     return JsonResponse({'success': 'Sequence renamed.'})
 
 def get_azenta_file_quality(request):
