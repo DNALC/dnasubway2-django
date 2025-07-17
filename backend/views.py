@@ -2255,10 +2255,16 @@ def rename_nanopore_file(request):
     nanopore_sequence.name = seq_name
     nanopore_sequence.save()
 
-    DataFile.objects.filter(
-        source='nanopore',
-        nanopore_seq_id=nanopore_sequence.id
-    ).update(name=seq_name)
+    datafiles = DataFile.objects.filter(source='nanopore', nanopore_seq_id=nanopore_sequence.id)
+    for data_file in datafiles:
+        data_file.name = seq_name
+        if data_file.associated_fasta:
+            header = re.sub(r'\s+', '_', seq_name)
+            fasta_content = ContentFile(f">{header}\n{data_file.reads}\n")
+            fasta_file_name = f"{data_file.id}.fasta"
+            fasta_file_path = default_storage.save(f"fasta_files/{fasta_file_name}", fasta_content)
+            data_file.associated_fasta.name = fasta_file_path
+        data_file.save()
 
     return JsonResponse({'success': 'Sequence renamed.'})
 
@@ -2976,42 +2982,6 @@ def rename_sanger_file(request):
     except DataFile.DoesNotExist:
         return JsonResponse({'error': 'Data file not found'}, status=404)
 
-    # Verify the file belongs to the project
-    if not ProjectDataFile.objects.filter(project=project, data_file=data_file).exists():
-        return JsonResponse({'error': 'Data file does not belong to this project'}, status=403)
-
-    # Check if the name already exists in the project
-    if ProjectDataFile.objects.filter(
-        project=project,
-        data_file__name=seq_name
-    ).exclude(data_file_id=file_id).exists():
-        return JsonResponse({'error': f"A sequence with name '{seq_name}' already exists in this project, please choose a new name or rename the project file"}, status=400)
-
-    # Rename the file
-    data_file.name = seq_name
-    data_file.save()
-
-    return JsonResponse({'success': 'Sequence renamed successfully'})
-
-def rename_sanger_file(request):
-    parsed_data = parse_user_project_data(request)
-    if 'error' in parsed_data:
-        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
-
-    data = parsed_data['data']
-    project = parsed_data['project']
-    file_id = data.get('sangerSeqId')
-    seq_name = data.get('seqName')
-
-    if not file_id:
-        return JsonResponse({'error': 'file_id is required'}, status=400)
-
-    # Get the project and data file
-    try:
-        data_file = DataFile.objects.get(id=file_id)
-    except DataFile.DoesNotExist:
-        return JsonResponse({'error': 'Data file not found'}, status=404)
-
     if data_file.source == "sample" or data_file.source == "reference":
         return JsonResponse({'error': 'You cannot rename sample or reference files'}, status=400)
 
@@ -3028,6 +2998,12 @@ def rename_sanger_file(request):
 
     # Rename the file
     data_file.name = seq_name
+    if data_file.associated_fasta:
+        header = re.sub(r'\s+', '_', seq_name)
+        fasta_content = ContentFile(f">{header}\n{data_file.reads}\n")
+        fasta_file_name = f"{data_file.id}.fasta"
+        fasta_file_path = default_storage.save(f"fasta_files/{fasta_file_name}", fasta_content)
+        data_file.associated_fasta.name = fasta_file_path
     data_file.save()
 
     return JsonResponse({'success': 'Sequence renamed successfully'})
