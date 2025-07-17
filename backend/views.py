@@ -477,6 +477,7 @@ def get_user_fields(request):
                     'gender': user_profile.gender,
                     'occupation': user_profile.occupation,
                     'source': user_profile.source,
+                    'elevated_access': user_profile.elevated_access,
                 })
 
                 # Retrieve ethnicity fields as a list of strings
