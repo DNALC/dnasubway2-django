@@ -362,8 +362,8 @@ def send_password_reset_email(to_email, token):
 
         # Email data
         subject = '[DNA Subway 2.0] Reset your Password'
-        text = f"Someone, perhaps you, has requested to change the password for this account.\nIf it wasn't you, you may disregard this message.\n\nUse this link to reset your password: {getattr(settings, 'REACT_URL')}reset/{token}"
-        body = f"<p>Someone, perhaps you, has requested to change the password for this account.<br />If it wasn't you, you may disregard this message.</p><p>Use this link to reset your password: <a href=\"{getattr(settings, 'REACT_URL')}reset/{token}\">{getattr(settings, 'REACT_URL')}reset/{token}</a></p>"
+        text = f"Someone, perhaps you, has requested to change the password for this account.\nIf it wasn't you, you may disregard this message.\n\nUse this link to reset your password: {getattr(settings, 'REACT_URL')}reset/{token}. This link will expire after one hour."
+        body = f"<p>Someone, perhaps you, has requested to change the password for this account.<br />If it wasn't you, you may disregard this message.</p><p>Use this link to reset your password: <a href=\"{getattr(settings, 'REACT_URL')}reset/{token}\">{getattr(settings, 'REACT_URL')}reset/{token}</a></p>. This link will expire after one hour."
         data = {
             'from': from_email,
             'to': to_email,
@@ -419,6 +419,26 @@ def confirm_password_reset(request):
     reset_token.delete()
 
     return JsonResponse({'success': 'Password reset successful'}, status=200)
+
+def get_user_by_reset_token(request):
+    token = request.GET.get('token')
+
+    if not token:
+        return JsonResponse({'error': 'Token is required.'}, status=400)
+
+    try:
+        reset_token = PasswordResetToken.objects.select_related('user').get(token=token)
+    except PasswordResetToken.DoesNotExist:
+        return JsonResponse({'error': 'Invalid token.'}, status=404)
+
+    if reset_token.expires_at < timezone.now():
+        return JsonResponse({'error': 'Token has expired.'}, status=410)
+
+    user = reset_token.user
+    return JsonResponse({
+        'username': user.username,
+        'email': user.email,
+    }, status=200)
 
 # Mapping between ethnicity fields and their corresponding strings
 ETHNICITY_MAPPING = {
