@@ -128,7 +128,7 @@ class PasswordResetToken(models.Model):
 
     @classmethod
     def create_token(cls, user):
-        token = secrets.token_hex(32)
+        token = secrets.token_hex(16)
         expiration_time = timezone.now() + timezone.timedelta(hours=1)  # Token expires in 1 hour
         return cls.objects.create(user=user, token=token, expires_at=expiration_time)
 
