@@ -135,6 +135,22 @@ def registered_users(request):
         'emails': list(emails),
     })
 
+@csrf_exempt
+def user_registered(request):
+    username = request.GET.get('username')
+    email = request.GET.get('email')
+
+    if username and email:
+        exists = User.objects.filter(username=username, email=email).exists()
+    elif username:
+        exists = User.objects.filter(username=username).exists()
+    elif email:
+        exists = User.objects.filter(email=email).exists()
+    else:
+        return JsonResponse({'error': 'username or email parameter is required'}, status=400)
+
+    return JsonResponse({'registered': exists})
+
 # This is the endpoint for user registration
 @csrf_exempt
 def register(request):
