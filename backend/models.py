@@ -90,6 +90,7 @@ class UserProfile(models.Model):
     )
     source = models.CharField(max_length=2, choices=SOURCE_CHOICES)
     ethnicity = models.ForeignKey(Ethnicity, on_delete=models.CASCADE)
+    elevated_access = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.user.username}'s profile"
