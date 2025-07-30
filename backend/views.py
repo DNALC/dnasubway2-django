@@ -369,8 +369,8 @@ def verify_email(request):
 @csrf_exempt
 def confirm_verify_email(request, token):
     try:
-        email_token = PasswordResetToken.objects.get(token=token)
-    except PasswordResetToken.DoesNotExist:
+        email_token = EmailVerifyToken.objects.get(token=token)
+    except EmailVerifyToken.DoesNotExist:
         return JsonResponse({'error': 'Invalid or already used token'}, status=400)
 
     if email_token.expires_at < timezone.now():
