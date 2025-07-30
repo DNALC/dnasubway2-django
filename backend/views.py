@@ -372,7 +372,7 @@ def verify_email(request):
 
     verify_token = EmailVerifyToken.create_token(user)
 
-    if not send_verification_email(email, verify_token.token):
+    if not send_verification_email(email, PROTOCOL + request.get_host() + "/backend/verify/" + verify_token.token + "/"):
         return JsonResponse({'error': 'Failed to send verification email'}, status=500)
 
 @csrf_exempt
@@ -435,20 +435,19 @@ def send_password_reset_email(to_email, token):
 
     return True
 
-def send_verification_email(to_email, token):
+def send_verification_email(to_email, backend_verify_url):
     try:
         # Mailgun API endpoint
         url = f"https://api.mailgun.net/v3/{getattr(settings, 'MAILGUN_DOMAIN')}/messages"
 
         # Mailgun API credentials
         api_key = getattr(settings, 'MAILGUN_API_KEY')
-        backend_verify_url = PROTOCOL + request.get_host() + "/backend/verify/"
         from_email = getattr(settings, 'MAILGUN_FROM_EMAIL')
 
         # Email data
         subject = '[DNA Subway 2.0] Verify your email'
-        text = f"Someone, perhaps you, used this email address for their DNA Subway 2.0 account.\nIf it wasn't you, you may disregard this message.\n\nUse this link to verify your email: {backend_verify_url}{token}/. This link will expire after one hour."
-        body = f"<p>Someone, perhaps you, used this email address for their DNA Subway 2.0 account.<br />If it wasn't you, you may disregard this message.</p><p>Use this link to verify your email: <a href=\"{backend_verify_url}{token}/\">{backend_verify_url}{token}/</a>. This link will expire after one hour.</p>"
+        text = f"Someone, perhaps you, used this email address for their DNA Subway 2.0 account.\nIf it wasn't you, you may disregard this message.\n\nUse this link to verify your email: {backend_verify_url}. This link will expire after one hour."
+        body = f"<p>Someone, perhaps you, used this email address for their DNA Subway 2.0 account.<br />If it wasn't you, you may disregard this message.</p><p>Use this link to verify your email: <a href=\"{backend_verify_url}\">{backend_verify_url}</a>. This link will expire after one hour.</p>"
         data = {
             'from': from_email,
             'to': to_email,
