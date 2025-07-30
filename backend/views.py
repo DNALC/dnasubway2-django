@@ -504,7 +504,10 @@ def get_user_fields(request):
                 if User.objects.filter(username=username).exists() and username != user.username:
                     return JsonResponse({'error': 'User with this username already exists'}, status=400)
                 user.username = username
-                user.email = data.get('email', user.email)
+                email = data.get('email', user.email)
+                if User.objects.filter(email=email).exists() and email != user.email:
+                    return JsonResponse({'error': 'User with this email already exists'}, status=400)
+                user.email = email
                 user.save()
 
                 # Update UserProfile fields if available
