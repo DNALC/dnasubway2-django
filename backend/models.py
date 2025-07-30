@@ -91,6 +91,7 @@ class UserProfile(models.Model):
     source = models.CharField(max_length=2, choices=SOURCE_CHOICES)
     ethnicity = models.ForeignKey(Ethnicity, on_delete=models.CASCADE)
     elevated_access = models.BooleanField(default=False)
+    verified = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.user.username}'s profile"
@@ -122,6 +123,18 @@ class TutorialSettings(models.Model):
         }.get(project.project_type)
 
 class PasswordResetToken(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    token = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    @classmethod
+    def create_token(cls, user):
+        token = secrets.token_hex(16)
+        expiration_time = timezone.now() + timezone.timedelta(hours=1)  # Token expires in 1 hour
+        return cls.objects.create(user=user, token=token, expires_at=expiration_time)
+
+class EmailVerifyToken(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     token = models.CharField(max_length=64, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)

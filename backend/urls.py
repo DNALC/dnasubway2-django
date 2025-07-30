@@ -65,6 +65,8 @@ urlpatterns = [
     path('backend/toggle_sequence_read_type', toggle_sequence_read_type, name='toggle_sequence_read_type'),
     path('backend/delete_nanopore_file', delete_nanopore_file, name='delete_nanopore_file'),
     path('backend/tutorial_status', get_tutorial_status, name='get_tutorial_status'),
+    path('backend/verify_email', verify_email, name='verify_email'),
+    path('backend/verify/<str:token>/', confirm_verify_email, name='verify'),
 ]
 
 

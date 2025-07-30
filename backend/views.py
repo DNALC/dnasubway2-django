@@ -6,7 +6,7 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.paginator import Paginator
 from django.db.models import Prefetch, Q
-from django.http import HttpResponse, Http404, JsonResponse
+from django.http import HttpResponse, Http404, JsonResponse, HttpResponseRedirect
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -20,7 +20,7 @@ import requests
 import string
 import tempfile
 #from django.shortcuts import render
-from .models import UserProfile, Ethnicity, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone
+from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone
 from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences
 import gzip
 import shutil
@@ -341,6 +341,8 @@ def request_password_reset(request):
             user = User.objects.get(email=email)
     except User.DoesNotExist:
         return JsonResponse({'error': 'User not found'}, status=404)
+    if not email:
+        email = user.email
 
     # Create password reset token
     reset_token = PasswordResetToken.create_token(user)
@@ -350,6 +352,43 @@ def request_password_reset(request):
         return JsonResponse({'error': 'Failed to send password reset email'}, status=500)
 
     return JsonResponse({'success': 'Password reset email sent'}, status=200)
+
+def verify_email(request):
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    user = request.user
+    email = user.email
+
+    verify_token = EmailVerifyToken.create_token(user)
+
+    if not send_verification_email(email, verify_token.token):
+        return JsonResponse({'error': 'Failed to send verification email'}, status=500)
+
+@csrf_exempt
+def confirm_verify_email(request, token):
+    try:
+        email_token = PasswordResetToken.objects.get(token=token)
+    except PasswordResetToken.DoesNotExist:
+        return JsonResponse({'error': 'Invalid or already used token'}, status=400)
+
+    if email_token.expires_at < timezone.now():
+        # Token has expired
+        return JsonResponse({'error': 'Token has expired'}, status=400)
+
+    # Update user's verified status
+    user = email_token.user
+    if hasattr(user, 'userprofile'):
+        # Include fields from UserProfile model
+        user_profile = user.userprofile
+        user_profile.verified = True
+        user_profile.save()
+
+    # Delete the reset token
+    email_token.delete()
+
+    return HttpResponseRedirect(settings.REACT_URL)
 
 def send_password_reset_email(to_email, token):
     try:
@@ -383,6 +422,43 @@ def send_password_reset_email(to_email, token):
             return False
     except Exception as e:
         print(f"Error sending password reset email: {e}")
+        return False
+
+    return True
+
+def send_verification_email(to_email, token):
+    try:
+        # Mailgun API endpoint
+        url = f"https://api.mailgun.net/v3/{getattr(settings, 'MAILGUN_DOMAIN')}/messages"
+
+        # Mailgun API credentials
+        api_key = getattr(settings, 'MAILGUN_API_KEY')
+        backend_verify_url = PROTOCOL + request.get_host() + "/backend/verify/"
+        from_email = getattr(settings, 'MAILGUN_FROM_EMAIL')
+
+        # Email data
+        subject = '[DNA Subway 2.0] Verify your email'
+        text = f"Someone, perhaps you, used this email address for their DNA Subway 2.0 account.\nIf it wasn't you, you may disregard this message.\n\nUse this link to verify your email: {backend_verify_url}{token}/. This link will expire after one hour."
+        body = f"<p>Someone, perhaps you, used this email address for their DNA Subway 2.0 account.<br />If it wasn't you, you may disregard this message.</p><p>Use this link to verify your email: <a href=\"{backend_verify_url}{token}/\">{backend_verify_url}{token}/</a>. This link will expire after one hour.</p>"
+        data = {
+            'from': from_email,
+            'to': to_email,
+            'subject': subject,
+            'text': text,
+            'html': body
+        }
+
+        # Make POST request to Mailgun API
+        response = requests.post(url, auth=('api', api_key), data=data)
+
+        # Check if the email was successfully sent
+        if response.status_code == 200:
+            print("Email verification email sent successfully")
+        else:
+            print("Failed to send verification email")
+            return False
+    except Exception as e:
+        print(f"Error sending verification: {e}")
         return False
 
     return True
@@ -478,6 +554,7 @@ def get_user_fields(request):
                     'occupation': user_profile.occupation,
                     'source': user_profile.source,
                     'elevated_access': user_profile.elevated_access,
+                    'verified': user_profile.verified,
                 })
 
                 # Retrieve ethnicity fields as a list of strings
