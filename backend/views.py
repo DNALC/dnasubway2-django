@@ -519,17 +519,18 @@ def get_user_fields(request):
 
                     # Update ethnicity record associated with the UserProfile
                     ethnicity_list = data.get('ethnicity', [])
-                    ethnicity_record, _ = Ethnicity.objects.get_or_create(userprofile=user_profile)
-                    ethnicity_record.white = 'wh' in ethnicity_list
-                    ethnicity_record.native = 'na' in ethnicity_list
-                    ethnicity_record.asian = 'as' in ethnicity_list
-                    ethnicity_record.black = 'aa' in ethnicity_list
-                    ethnicity_record.hispanic = 'hs' in ethnicity_list
-                    ethnicity_record.middle = 'me' in ethnicity_list
-                    ethnicity_record.pacific = 'pi' in ethnicity_list
-                    ethnicity_record.other = 'oo' in ethnicity_list
-                    ethnicity_record.unanswered = 'pn' in ethnicity_list
-                    ethnicity_record.save()
+                    if len(ethnicity_list) > 0:
+                        ethnicity_record, _ = Ethnicity.objects.get_or_create(userprofile=user_profile)
+                        ethnicity_record.white = 'wh' in ethnicity_list
+                        ethnicity_record.native = 'na' in ethnicity_list
+                        ethnicity_record.asian = 'as' in ethnicity_list
+                        ethnicity_record.black = 'aa' in ethnicity_list
+                        ethnicity_record.hispanic = 'hs' in ethnicity_list
+                        ethnicity_record.middle = 'me' in ethnicity_list
+                        ethnicity_record.pacific = 'pi' in ethnicity_list
+                        ethnicity_record.other = 'oo' in ethnicity_list
+                        ethnicity_record.unanswered = 'pn' in ethnicity_list
+                        ethnicity_record.save()
 
             except Exception as e:
                 return JsonResponse({'error': str(e)}, status=400)
