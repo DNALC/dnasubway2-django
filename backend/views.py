@@ -374,6 +374,7 @@ def verify_email(request):
 
     if not send_verification_email(email, PROTOCOL + request.get_host() + "/backend/verify/" + verify_token.token + "/"):
         return JsonResponse({'error': 'Failed to send verification email'}, status=500)
+    return JsonResponse({'success': 'Verification email successfully sent'}, status=200)
 
 @csrf_exempt
 def confirm_verify_email(request, token):
