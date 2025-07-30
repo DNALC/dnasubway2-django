@@ -79,6 +79,15 @@ def parse_data(request):
 
     return {'data': data}
 
+def is_logged_in_post(request):
+    if request.method != 'POST':
+        return {'error': 'Method not allowed', 'status': 405}
+    if not request.user:
+        return {'error': 'User does not exist', 'status': 401}
+    if not request.user.is_authenticated:
+        return {'error': 'User not authenticated', 'status': 401}
+    return {'status': 'success'}
+
 # Return dictionary with error if not post request or request body cannot be parsed as JSON or user not authenticated,
 # otherwise return dictionary with request body parsed as JSON data
 def parse_user_data(request):
@@ -354,7 +363,7 @@ def request_password_reset(request):
     return JsonResponse({'success': 'Password reset email sent'}, status=200)
 
 def verify_email(request):
-    parsed_data = parse_user_data(request)
+    parsed_data = is_logged_in_post(request)
     if 'error' in parsed_data:
         return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
 
