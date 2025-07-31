@@ -20,7 +20,7 @@ import requests
 import string
 import tempfile
 #from django.shortcuts import render
-from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone
+from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken
 from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences
 import gzip
 import shutil
@@ -472,6 +472,41 @@ def send_verification_email(to_email, backend_verify_url):
 
     return True
 
+def send_permission_request_result_email(to_email, decision, reason):
+    try:
+        # Mailgun setup
+        domain = getattr(settings, 'MAILGUN_DOMAIN')
+        api_key = getattr(settings, 'MAILGUN_API_KEY')
+        from_email = getattr(settings, 'MAILGUN_FROM_EMAIL')
+
+        url = f"https://api.mailgun.net/v3/{domain}/messages"
+
+        subject = f"[DNA Subway 2.0] Your permission request was {decision}"
+        text = f"Your request for elevated privileges was {decision}.\n\nReason you gave:\n{reason}"
+        html = (
+            f"<p>Your request for elevated privileges was <strong>{decision}</strong>.</p>"
+            f"<p><strong>Reason you gave:</strong><br>{reason}</p>"
+        )
+
+        data = {
+            'from': from_email,
+            'to': to_email,
+            'subject': subject,
+            'text': text,
+            'html': html
+        }
+
+        response = requests.post(url, auth=('api', api_key), data=data)
+
+        if response.status_code != 200:
+            print(f"Failed to send permission result email: {response.text}")
+            return False
+    except Exception as e:
+        print(f"Error sending permission result email: {e}")
+        return False
+
+    return True
+
 @csrf_exempt
 def confirm_password_reset(request):
     parsed_data = parse_data(request)
@@ -550,18 +585,21 @@ def get_user_fields(request):
                 'last': user.last_name,
                 'email': user.email,
                 'id': user.id,
+                'superuser': user.is_superuser,
             }
 
             # Check if UserProfile exists for the user
             if hasattr(user, 'userprofile'):
                 # Include fields from UserProfile model
                 user_profile = user.userprofile
+                pending_access_request = EnhancedPermissionToken.objects.filter(user=user, status='pending').exists() and not user_profile.elevated_access
                 user_fields.update({
                     'country': user_profile.country,
                     'zip': user_profile.postal_code,
                     'gender': user_profile.gender,
                     'occupation': user_profile.occupation,
                     'source': user_profile.source,
+                    'pending_access_request': pending_access_request,
                     'elevated_access': user_profile.elevated_access,
                     'verified': user_profile.verified,
                 })
@@ -2783,6 +2821,88 @@ def upload_fasta_content(request):
         sequences_added = True
 
     return JsonResponse({"status": "success", "warnings": warnings}, status=200)
+
+def request_enhanced_permission(request):
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+    user = request.user
+
+
+    if not user or not hasattr(user, 'userprofile'):
+        return JsonResponse({'error': 'User profile not found'}, status=400)
+    if not user.userprofile.verified:
+        return JsonResponse({'error': 'User is not verified'}, status=403)
+    if user.userprofile.elevated_priveleges:
+        return JsonResponse({'error': 'User already has elevated privileges'}, status=400)
+
+    if EnhancedPermissionToken.objects.filter(user=user, status='pending').exists():
+        return JsonResponse({'error': 'A pending request already exists'}, status=400)
+
+    reason = parsed_data.get('reason')
+    if not reason:
+        reason = ""
+
+    token_obj = EnhancedPermissionToken.create_token(user, reason)
+
+    return JsonResponse({
+        'success': 'Permission request submitted',
+        'token': token_obj.token
+    }, status=200)
+
+def update_permission_request_status(request, token):
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    admin_user = request.user
+    if not admin_user or not admin_user.is_superuser:
+        return JsonResponse({'error': 'Only superusers can update requests'}, status=403)
+
+    action = parsed_data.get("action")  # must be "approve" or "deny"
+    if action not in ['approve', 'deny']:
+        return JsonResponse({'error': 'Invalid action. Must be "approve" or "deny".'}, status=400)
+    token = parsed_data.get("token")
+
+    try:
+        token_obj = EnhancedPermissionToken.objects.get(token=token, status='pending')
+    except EnhancedPermissionToken.DoesNotExist:
+        return JsonResponse({'error': 'No pending request found with this token'}, status=404)
+
+    if action == 'approve':
+        profile = token_obj.user.userprofile
+        profile.elevated_priveleges = True
+        profile.save()
+        token_obj.status = 'approved'
+    else:
+        token_obj.status = 'denied'
+
+    token_obj.save()
+    send_permission_request_result_email(user.email, decision=token_obj.status, reason=token_obj.reason)
+
+    return JsonResponse({'success': f'Request {token_obj.status}'}, status=200)
+
+def list_pending_permission_requests(request):
+    if request.method != "GET":
+        return JsonResponse({'error': 'GET method required'}, status=405)
+
+    if not request.user or not request.user.is_authenticated:
+        return JsonResponse({'error': 'Authentication required'}, status=401)
+
+    if not request.user.is_superuser:
+        return JsonResponse({'error': 'Superuser access required'}, status=403)
+
+    pending_tokens = EnhancedPermissionToken.objects.filter(status='pending').select_related('user')
+    data = [
+        {
+            'username': token.user.username,
+            'token': token.token,
+            'reason': token.reason
+        }
+        for token in pending_tokens
+    ]
+
+    return JsonResponse({'requests': data}, status=200)
 
 # Helper function
 def toggle_datafile_boolean_field(request, field_name):

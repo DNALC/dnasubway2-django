@@ -146,6 +146,24 @@ class EmailVerifyToken(models.Model):
         expiration_time = timezone.now() + timezone.timedelta(hours=1)  # Token expires in 1 hour
         return cls.objects.create(user=user, token=token, expires_at=expiration_time)
 
+class EnhancedPermissionToken(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('denied', 'Denied'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    token = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    reason = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+
+    @classmethod
+    def create_token(cls, user, reason):
+        token = secrets.token_hex(16)
+        return cls.objects.create(user=user, token=token, reason=reason, status='pending')
+
 class Project(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     title = models.CharField(max_length=64, default='')
