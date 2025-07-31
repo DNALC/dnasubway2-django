@@ -2832,7 +2832,7 @@ def request_enhanced_permission(request):
     if not user or not hasattr(user, 'userprofile'):
         return JsonResponse({'error': 'User profile not found'}, status=400)
     if not user.userprofile.verified:
-        return JsonResponse({'error': 'User is not verified'}, status=403)
+        return JsonResponse({'error': 'Email address is not verified'}, status=403)
     if user.userprofile.elevated_priveleges:
         return JsonResponse({'error': 'User already has elevated privileges'}, status=400)
 
