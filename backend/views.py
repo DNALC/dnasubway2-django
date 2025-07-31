@@ -2896,6 +2896,7 @@ def list_pending_permission_requests(request):
     data = [
         {
             'username': token.user.username,
+            'email': token.user.email,
             'token': token.token,
             'reason': token.reason
         }
