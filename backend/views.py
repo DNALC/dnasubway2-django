@@ -2833,7 +2833,7 @@ def request_enhanced_permission(request):
         return JsonResponse({'error': 'User profile not found'}, status=400)
     if not user.userprofile.verified:
         return JsonResponse({'error': 'Email address is not verified'}, status=403)
-    if user.userprofile.elevated_priveleges:
+    if user.userprofile.elevated_access:
         return JsonResponse({'error': 'User already has elevated privileges'}, status=400)
 
     if EnhancedPermissionToken.objects.filter(user=user, status='pending').exists():
@@ -2871,7 +2871,7 @@ def update_permission_request_status(request, token):
 
     if action == 'approve':
         profile = token_obj.user.userprofile
-        profile.elevated_priveleges = True
+        profile.elevated_access = True
         profile.save()
         token_obj.status = 'approved'
     else:
