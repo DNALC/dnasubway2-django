@@ -591,7 +591,8 @@ def get_user_fields(request):
                     return JsonResponse({'error': 'User with this username already exists'}, status=400)
                 user.username = username
                 email = data.get('email', user.email)
-                if User.objects.filter(email=email).exists() and email != user.email:
+                email_changed = email != user.email
+                if User.objects.filter(email=email).exists() and email_changed:
                     return JsonResponse({'error': 'User with this email already exists'}, status=400)
                 user.email = email
                 user.save()
@@ -604,6 +605,8 @@ def get_user_fields(request):
                     user_profile.gender = data.get('gender', user_profile.gender)
                     user_profile.occupation = data.get('occupation', user_profile.occupation)
                     user_profile.source = data.get('source', user_profile.source)
+                    if email_changed:
+                        user_profile.verified = False
                     user_profile.save()
 
                     # Update ethnicity record associated with the UserProfile
