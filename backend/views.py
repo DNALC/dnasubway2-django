@@ -2902,7 +2902,7 @@ def list_pending_permission_requests(request):
             'username': token.user.username,
             'email': token.user.email,
             'token': token.token,
-            'token': token.status,
+            'status': token.status,
             'reason': token.reason
         }
         for token in pending_approved_tokens
