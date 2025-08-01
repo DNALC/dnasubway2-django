@@ -2827,6 +2827,7 @@ def request_enhanced_permission(request):
     if 'error' in parsed_data:
         return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
     user = request.user
+    data = parsed_data['data']
 
 
     if not user or not hasattr(user, 'userprofile'):
@@ -2839,7 +2840,7 @@ def request_enhanced_permission(request):
     if EnhancedPermissionToken.objects.filter(user=user, status='pending').exists():
         return JsonResponse({'error': 'A pending request already exists'}, status=400)
 
-    reason = parsed_data.get('reason')
+    reason = data.get('reason')
     if not reason:
         reason = ""
 
@@ -2859,10 +2860,11 @@ def update_permission_request_status(request):
     if not admin_user or not admin_user.is_superuser:
         return JsonResponse({'error': 'Only superusers can update requests'}, status=403)
 
-    action = parsed_data.get("action")  # must be "approve" or "deny"
+    data = parsed_data['data']
+    action = data.get("action")  # must be "approve" or "deny"
     if action not in ['approve', 'deny']:
         return JsonResponse({'error': 'Invalid action. Must be "approve" or "deny".'}, status=400)
-    token = parsed_data.get("token")
+    token = data.get("token")
 
     try:
         token_obj = EnhancedPermissionToken.objects.get(token=token, status='pending')
