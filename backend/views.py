@@ -2894,15 +2894,18 @@ def list_pending_permission_requests(request):
     if not request.user.is_superuser:
         return JsonResponse({'error': 'Superuser access required'}, status=403)
 
-    pending_tokens = EnhancedPermissionToken.objects.filter(status='pending').select_related('user')
+    pending_approved_tokens = EnhancedPermissionToken.objects.filter(
+        status__in=['pending', 'approved']
+    ).select_related('user')
     data = [
         {
             'username': token.user.username,
             'email': token.user.email,
             'token': token.token,
+            'token': token.status,
             'reason': token.reason
         }
-        for token in pending_tokens
+        for token in pending_approved_tokens
     ]
 
     return JsonResponse({'requests': data}, status=200)
