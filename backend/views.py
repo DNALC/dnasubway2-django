@@ -2880,7 +2880,7 @@ def update_permission_request_status(request):
         token_obj.status = 'denied'
 
     token_obj.save()
-    send_permission_request_result_email(user.email, decision=token_obj.status, reason=token_obj.reason)
+    send_permission_request_result_email(admin_user.email, decision=token_obj.status, reason=token_obj.reason)
 
     return JsonResponse({'success': f'Request {token_obj.status}'}, status=200)
 
