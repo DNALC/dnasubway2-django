@@ -2850,7 +2850,7 @@ def request_enhanced_permission(request):
         'token': token_obj.token
     }, status=200)
 
-def update_permission_request_status(request, token):
+def update_permission_request_status(request):
     parsed_data = parse_user_data(request)
     if 'error' in parsed_data:
         return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
