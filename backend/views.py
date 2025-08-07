@@ -14,13 +14,15 @@ from django.views.decorators.csrf import csrf_exempt
 import io
 import json
 import os
+import subprocess
 import random
 import re
 import requests
 import string
 import tempfile
+import time
 #from django.shortcuts import render
-from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken
+from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job
 from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences
 import gzip
 import shutil
@@ -28,8 +30,10 @@ from .tasks import run_fastp_task, run_porechop_task, run_medaka_task  # Celery 
 from Bio import SeqIO
 import base64
 from .models import Author, MuscleTrim
+from tapipy.tapis import Tapis
 
 PROTOCOL = getattr(settings, 'PROTOCOL') or "https://"
+SERVICE_TOKEN = None
 
 # Return dictionary with error if not POST, otherwise return False
 def not_post(request):
@@ -3400,4 +3404,193 @@ def get_tutorial_status(request):
     return JsonResponse({
         "other_projects_exist": other_projects_exist,
         "tutorial_disabled": False,
+    })
+
+def run_openstack(cmd):
+    OPENRC_PATH = settings.OPENRC_PATH
+    full_cmd = f"source {OPENRC_PATH} && {cmd}"
+    return subprocess.check_output(["bash", "-c", full_cmd], universal_newlines=True)
+
+def ensure_instance_ready(instance_name):
+    MAX_WAIT_TIME = settings.MAX_WAIT_TIME
+    def can_ssh():
+        ssh_cmd = (
+            "ssh -o ConnectTimeout=5 "
+            "-o BatchMode=yes "
+            "-o StrictHostKeyChecking=no "
+            "-i ~/.ssh/other/jetstream2 "
+            "exouser@149.165.171.197 exit"
+        )
+        try:
+            subprocess.check_call(ssh_cmd, shell=True)
+            return True
+        except subprocess.CalledProcessError:
+            return False
+
+    try:
+        time_elapsed = 0
+        state = run_openstack(f"openstack server show -f json '{instance_name}'")
+        status = json.loads(state)["status"]
+
+        if status == "SHUTOFF":
+            run_openstack(f"openstack server start '{instance_name}'")
+        elif status in ["SHELVED", "SHELVED_OFFLOADED"]:
+            run_openstack(f"openstack server unshelve '{instance_name}'")
+
+        # Wait for it to become ACTIVE if necessary
+        if status in ["SHUTOFF", "SHELVED", "SHELVED_OFFLOADED"]:
+            for _ in range(MAX_WAIT_TIME // 10):
+                time_elapsed += 10
+                time.sleep(10)
+                state = run_openstack(f"openstack server show -f json '{instance_name}'")
+                status = json.loads(state)["status"]
+                if status == "ACTIVE":
+                    break
+                print(f"Waiting for ACTIVE... Time elapsed: {time_elapsed}s")
+
+        if status != "ACTIVE":
+            return False, f"Instance {instance_name} did not become ACTIVE within {MAX_WAIT_TIME}s"
+
+        # Now wait for SSH availability
+        print("Instance is ACTIVE. Checking SSH availability...")
+        for _ in range(MAX_WAIT_TIME // 10):
+            if can_ssh():
+                print("SSH is now available.")
+                return True, None
+            time_elapsed += 10
+            print(f"SSH not available yet... Time elapsed: {time_elapsed}s")
+            time.sleep(10)
+
+        return False, f"SSH not available on instance {instance_name} after {MAX_WAIT_TIME} seconds."
+
+    except Exception as e:
+        return False, str(e)
+
+def get_service_token():
+    global SERVICE_TOKEN
+    SERVICE_USERNAME = settings.TAPIS_SERVICE_USERNAME
+    SERVICE_PASSWORD = settings.TAPIS_SERVICE_PASSWORD
+    BASE_URL = settings.TAPIS_URL
+
+    payload = {
+        "account_type": "service",
+        "token_tenant_id": "admin",
+        "token_username": SERVICE_USERNAME,
+        "target_site_id": "tacc",
+        "access_token_ttl": 99999,
+    }
+
+    headers = {
+        'X-Tapis-Tenant': 'admin',
+        'X-Tapis-User': SERVICE_USERNAME
+    }
+
+    try:
+        rsp = requests.post(
+            url=f"{BASE_URL}/v3/tokens",
+            auth=(SERVICE_USERNAME, SERVICE_PASSWORD),
+            headers=headers,
+            json=payload
+        )
+        rsp.raise_for_status()
+        result = rsp.json()["result"]["access_token"]
+        SERVICE_TOKEN = result["access_token"]
+    except Exception as e:
+        print(f"Error generating token: {e}; message: {rsp.content}")
+
+def generate_user_token(username):
+    if not SERVICE_TOKEN:
+        return None
+    SERVICE_USERNAME = settings.TAPIS_SERVICE_USERNAME
+    BASE_URL = settings.TAPIS_URL
+    payload = {
+        "account_type": "user",
+        "token_tenant_id": SERVICE_USERNAME,
+        "token_username": username,  # the username of the user you authenticated separately
+        "target_site_id": "tacc",
+        "access_token_ttl": 14400, # this dictates how long the user token lasts; we recommend 4 hours
+    }
+
+    headers = {'X-Tapis-Tenant': 'admin', 'X-Tapis-User': SERVICE_USERNAME, 'X-Tapis-Token': SERVICE_TOKEN}
+    rsp = requests.post(url=f"{BASE_URL}/v3/tokens", headers=headers, json=payload)
+    try:
+        rsp.raise_for_status()
+        result = rsp.json()["result"]["access_token"]
+        user_token = result["access_token"]
+        return user_token
+    except Exception as e:
+        print(f"Error generating token: {e}; message: {rsp.content}")
+        return None
+
+def connect_to_tapis(username, user_token):
+    BASE_URL = settings.TAPIS_URL
+    t = Tapis(base_url= BASE_URL, username=username, access_token=user_token)
+    return t
+
+def create_basecall_job(tapis, user, uploaded_ids, model, kit, output):
+    url_start = settings.REACT_URL + "backend/pod5_files/"
+    path_end = ".pod5"
+    fileInputs = []
+    for i in uploaded_ids:
+        fileInputs.append({"name": str(i) + path_end, "sourceUrl": url_start + str(i) + path_end, "targetPath": "."})
+    job_params = {
+         "name": "basecall",
+         "appId": "dnasubway-dorado",
+         "appVersion":"0.0.3",
+         "fileInputs": fileInputs,
+         "parameterSet":{
+             "envVariables":[{"key":"MODEL", "value":model},{"key": "KIT_NAME", "value": kit},{"key": "OUTPUT_NAME", "value": output}]
+         }
+    }
+    job_response = tapis.jobs.submitJob(**job_params)
+    job_uuid = job_response.get('uuid')
+    job = Job.objects.create(user=user, appId='dnasubway-dorado', uuid=job_uuid, status='PENDING')
+    basecall_job = BasecallingJob.objects.create(job=job, model=model, output_name=output, kit_name=kit)
+    return job_uuid
+
+def basecall(request):
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    user = request.user
+    files = data.get('files')
+    model = data.get('model', 'fast')
+    kit = data.get('kit', 'SQK-RBK114-24')
+    output = data.get('output_name', 'testname')
+    if not files:
+        return JsonResponse({'error': 'files is required'}, status=400)
+
+    uploaded_ids = []
+    active, err = ensure_instance_ready(settings.INSTANCE_NAME)
+    if err:
+        return JsonResponse({'error': err})
+
+    get_service_token()
+    user_token = generate_user_token(user.username)
+    tapis = connect_to_tapis(user.username, user_token)
+    pod_files = []
+
+    for relative_path, base64_content in files.items():
+        try:
+            # Decode the base64 content
+            raw_bytes = base64.b64decode(base64_content)
+        except Exception as e:
+            warnings.append(f"Failed to decode {relative_path}: {e}")
+            continue
+
+        # Create PodFile instance
+        podfile_instance = PodFile.objects.create(user=user, name=os.path.basename(relative_path))
+
+        # Save file using Django's storage system
+        podfile_filename = f"{podfile_instance.id}.pod5"
+        podfile_instance.file.save(podfile_filename, ContentFile(raw_bytes), save=True)
+
+        uploaded_ids.append(podfile_instance.id)
+
+    job_uuid = create_basecall_job(tapis, user, uploaded_ids, model, kit, output)
+    return JsonResponse({
+        'success': f'{len(uploaded_ids)} files uploaded.',
+        'uploaded_ids': uploaded_ids,
     })

@@ -206,12 +206,28 @@ class Project(models.Model):
     def __str__(self):
         return self.title
 
+
+class PodFile(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    file = models.FileField(upload_to='pod5_files/')
+
+    def __str__(self):
+        return self.name
+
 class NanoporeSequence(models.Model):
     name = models.CharField(max_length=255)
     file = models.FileField(upload_to='nanopore_sequences/')
 
     def __str__(self):
         return self.name
+
+class UserNanoporeSequence(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    nanopore_sequence = models.ForeignKey(NanoporeSequence, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return f"User {self.user_id} - Sequence {self.nanopore_sequence.name}"
 
 class DataFile(models.Model):
     # Foreign key for the user who uploaded the file
@@ -348,13 +364,20 @@ class Job(models.Model):
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    project = models.ForeignKey(Project, on_delete=models.CASCADE)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, null=True, blank=True)
     appId = models.CharField(max_length=255)
     uuid = models.CharField(max_length=40, unique=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
 
     def __str__(self):
         return f"Job {self.uuid} - {self.status}"
+
+class BasecallingJob(models.Model):
+    job = models.ForeignKey(Job, on_delete=models.CASCADE)
+    model = models.CharField(max_length=255)
+    output_name = models.CharField(max_length=255)
+    kit_name = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 class TrimJob(models.Model):
     job = models.ForeignKey(Job, on_delete=models.CASCADE)

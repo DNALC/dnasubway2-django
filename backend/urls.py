@@ -70,6 +70,7 @@ urlpatterns = [
     path("backend/request_enhanced_permission", request_enhanced_permission, name='request_enhanced_permission'),
     path("backend/update_enhanced_permission", update_permission_request_status, name='update_enhanced_permission'),
     path("backend/list_enhanced_permission_requests", list_pending_permission_requests, name='list_enhanced_permission_requests'),
+    path("backend/basecall", basecall, name='basecall'),
 ]
 
 
