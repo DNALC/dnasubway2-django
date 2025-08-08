@@ -3549,3 +3549,51 @@ def usernanoporesequences(request):
         return JsonResponse({'nanopore_sequences': data}, status=200)
 
     return JsonResponse({'error': 'Invalid request method'}, status=400)
+
+
+def upload_user_nanopore_file(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    nanoporesequence_ids = data.get('seq_ids')
+
+    if not nanoporesequence_ids:
+        return JsonResponse({'error': 'seq_ids is required'}, status=400)
+
+    # Convert seq_ids to a list if it's a string
+    if isinstance(seq_ids, str):
+        seq_ids = [seq_ids]
+
+    if not isinstance(seq_ids, list):
+        return JsonResponse({'error': 'seq_ids must be a list or a string'}, status=400)
+
+    responses = []
+    for seq_id in seq_ids:
+        try:
+            nanopore_sequence = NanoporeSequence.objects.get(id=seq_id)
+            # Link NanoporeSequence to the project
+            ProjectNanoporeSequence.objects.create(
+                project=project,
+                nanopore_sequence=nanopore_sequence
+            )
+            responses.append({
+                'seq_id': seq_id,
+                'status': 'success',
+            })
+        except NanoporeSequence.DoesNotExist:
+            responses.append({
+                'seq_id': seq_id,
+                'status': 'error',
+                'error': f'NanoporeSequence with id {seq_id} not found.'
+            })
+        except Exception as e:
+            responses.append({
+                'seq_id': seq_id,
+                'status': 'error',
+                'error': str(e)
+            })
+
+    return JsonResponse({'results': responses, 'status': 'success'}, status=200)

@@ -73,6 +73,7 @@ urlpatterns = [
     path("backend/basecall", basecall, name='basecall'),
     path("backend/basecall_jobs", basecall_jobs, name='basecall_jobs'),
     path("backend/user_nanopore_sequences", usernanoporesequences, name='user_nanopore_sequences'),
+    path("backend/upload_user_nanopore_file", upload_user_nanopore_file, name='upload_user_nanopore_file'),
 ]
 
 
