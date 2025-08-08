@@ -100,6 +100,7 @@ def poll_active_jobs():
         print("Checking user " + username)
         user_jobs = [j for j in jobs if j.job.user.username == username]
         
+        user_token = generate_user_token(username)
         print("User token: " + user_token) 
         tapis = connect_to_tapis(username, user_token)
 
