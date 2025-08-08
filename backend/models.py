@@ -217,7 +217,7 @@ class PodFile(models.Model):
 
 class NanoporeSequence(models.Model):
     name = models.CharField(max_length=255)
-    file = models.FileField(upload_to='nanopore_sequences/')
+    file = models.FileField(upload_to='fastq_files/')
 
     def __str__(self):
         return self.name
