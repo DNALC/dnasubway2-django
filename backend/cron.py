@@ -20,9 +20,11 @@ def get_job_status(tapis, job_uuid):
         return None
 
 def check_job(tapis, job_uuid, job_obj):
+    print("Checking job " + job_uuid)
     status = get_job_status(tapis, job_uuid)
     if status:
         current_status = status.get("status")
+        print("Current status: " + current_status)
         user = job_obj.job.user
 
         # If job is in a terminal state, remove PodFiles
@@ -78,6 +80,7 @@ def poll_active_jobs():
 
     # 2. Get service token
     get_service_token()
+    print("Got service token") 
 
     # 3. Query active jobs
     jobs = (
@@ -85,13 +88,17 @@ def poll_active_jobs():
         .select_related('job', 'job__user')
         .exclude(job__status__in=['FINISHED', 'CANCELLED', 'FAILED'])
     )
+    print("Got jobs") 
 
     # 4. Group by user
     usernames = set(j.job.user.username for j in jobs)
+    print("Got users") 
 
     for username in usernames:
+        print("Checking user " + username)
         user_jobs = [j for j in jobs if j.job.user.username == username]
-        user_token = generate_user_token(username)
+        
+        print("User token: " + user_token) 
         tapis = connect_to_tapis(username, user_token)
 
         for job in user_jobs:
