@@ -89,10 +89,12 @@ def poll_active_jobs():
         .exclude(job__status__in=['FINISHED', 'CANCELLED', 'FAILED'])
     )
     print("Got jobs") 
+    print(jobs) 
 
     # 4. Group by user
     usernames = set(j.job.user.username for j in jobs)
     print("Got users") 
+    print(usernames) 
 
     for username in usernames:
         print("Checking user " + username)
