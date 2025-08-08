@@ -3487,14 +3487,8 @@ def basecall(request):
         return JsonResponse({'error': 'files is required'}, status=400)
 
     uploaded_ids = []
-    active, err = ensure_instance_ready(settings.INSTANCE_NAME)
-    if err:
-        return JsonResponse({'error': err})
-
-    get_service_token()
-    user_token = generate_user_token(user.username)
-    tapis = connect_to_tapis(user.username, user_token)
-    pod_files = []
+    podfile_instances = []
+    warnings = []
 
     for relative_path, base64_content in files.items():
         try:
@@ -3511,7 +3505,19 @@ def basecall(request):
         podfile_filename = f"{podfile_instance.id}.pod5"
         podfile_instance.file.save(podfile_filename, ContentFile(raw_bytes), save=True)
 
+        podfile_instances.append(podfile_instance)
         uploaded_ids.append(podfile_instance.id)
+
+    active, err = ensure_instance_ready(settings.INSTANCE_NAME)
+    if err:
+        for pf in podfile_instances:
+            pf.file.delete(save=False)
+            pf.delete()
+        return JsonResponse({'error': err})
+
+    get_service_token()
+    user_token = generate_user_token(user.username)
+    tapis = connect_to_tapis(user.username, user_token)
 
     job_uuid = create_basecall_job(tapis, user, uploaded_ids, model, kit, output)
     return JsonResponse({
