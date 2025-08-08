@@ -23,7 +23,14 @@ SERVICE_TOKEN = None
 def run_openstack(cmd):
     OPENRC_PATH = settings.OPENRC_PATH
     full_cmd = f"source {OPENRC_PATH} && {cmd}"
-    return subprocess.check_output(["bash", "-c", full_cmd], universal_newlines=True)
+    try:
+        return subprocess.check_output(
+            ["bash", "-c", full_cmd],
+            universal_newlines=True,
+        )
+    except Exception:
+        # Catch anything unexpected
+        return json.dumps({"status": "FAILURE"})
 
 def shelve_instance(instance_name):
     MAX_WAIT_TIME = settings.MAX_WAIT_TIME
