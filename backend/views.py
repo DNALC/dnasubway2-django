@@ -3444,6 +3444,7 @@ def basecall_jobs(request):
             'created_at': job.created_at.strftime("%Y-%m-%d"),
             'output_name': job.output_name,
             'status': job.job.status
+            'id': job.id
         }
         for job in jobs
     ]
