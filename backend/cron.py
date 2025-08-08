@@ -83,22 +83,24 @@ def check_job(tapis, job_uuid, job_obj):
                 )
 
 def poll_active_jobs():
-    # 1. Ensure instance is ready
-    active, err = ensure_instance_ready(settings.INSTANCE_NAME)
-    if err:
-        print(err)
-        return
-
-    # 2. Get service token
-    get_service_token()
-    print("Got service token") 
-
-    # 3. Query active jobs
+    # 1. Query active jobs
     jobs = (
         BasecallingJob.objects
         .select_related('job', 'job__user')
         .exclude(job__status__in=['FINISHED', 'CANCELLED', 'FAILED'])
     )
+    if not jobs.exists():
+        return
+
+    # 2. Ensure instance is ready
+    active, err = ensure_instance_ready(settings.INSTANCE_NAME)
+    if err:
+        print(err)
+        return
+
+    # 3. Get service token
+    get_service_token()
+    print("Got service token") 
     print("Got jobs") 
     print(jobs) 
 
