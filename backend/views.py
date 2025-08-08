@@ -3468,6 +3468,11 @@ def basecall(request):
             'error': 'You already have an active base-calling job. Please wait for it to finish before starting another.'
         }, status=400)
 
+    if PodFile.objects.filter(user=user).exists():
+        return JsonResponse({
+            'error': 'You have a queued base-calling job. Please wait for it to finish or timeout before submitting a new base-calling job.'
+        }, status=400)
+
     output = data.get('output_name', 'testname')
 
     duplicate_job_exists = BasecallingJob.objects.filter(
