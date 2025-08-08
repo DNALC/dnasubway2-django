@@ -54,8 +54,8 @@ def check_job(tapis, job_uuid, job_obj):
                 # Delete file from Tapis after retrieval
                 try:
                     tapis.files.delete(
-                        systemId="js2_dnasubway_full_gpu",  # e.g. 'tapis-job-files'
-                        path=f"home/{job_owner}/job-{job_uuid}/fastq/{os.path.basename(file_path)}"
+                        systemId="js2_dnasubway_full_gpu",
+                        path=f"home/{user.username}/job-{job_uuid}/fastq/{os.path.basename(file_path)}"
                     )
                     print(f"Deleted {file_path} from Tapis")
                 except Exception as e:
