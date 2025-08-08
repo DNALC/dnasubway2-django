@@ -2961,6 +2961,7 @@ def get_filtered_user_datafiles(request, filter_dict, output_name):
                 'created': datafile.created,
                 'updated': datafile.updated,
                 'is_public': datafile.is_public,
+                'source': datafile.source,
                 'associated_abi': datafile.associated_abi.url if datafile.associated_abi else None,
                 'authors': [
                     {'first_name': author.first_name, 'last_name': author.last_name, 'affiliation': author.affiliation}
