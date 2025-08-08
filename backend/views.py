@@ -3575,7 +3575,7 @@ def upload_user_nanopore_file(request):
         try:
             nanopore_sequence = NanoporeSequence.objects.get(id=seq_id)
             # Link NanoporeSequence to the project
-            ProjectNanoporeSequence.objects.create(
+            ProjectNanoporeSequence.objects.get_or_create(
                 project=project,
                 nanopore_sequence=nanopore_sequence
             )
