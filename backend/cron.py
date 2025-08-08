@@ -65,6 +65,9 @@ def check_job(tapis, job_uuid, job_obj):
                     ContentFile(file_content)
                 )
 
+                print("Saving file to:", nanopore_sequence.file.path)
+                print("Exists after save:", os.path.exists(nanopore_sequence.file.path))
+
                 # Link sequence to user
                 UserNanoporeSequence.objects.create(
                     user=user,
