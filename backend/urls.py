@@ -72,6 +72,7 @@ urlpatterns = [
     path("backend/list_enhanced_permission_requests", list_pending_permission_requests, name='list_enhanced_permission_requests'),
     path("backend/basecall", basecall, name='basecall'),
     path("backend/basecall_jobs", basecall_jobs, name='basecall_jobs'),
+    path("backend/user_nanopore_sequences", usernanoporesequences, name='user_nanopore_sequences'),
 ]
 
 

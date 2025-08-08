@@ -22,7 +22,7 @@ import string
 import tempfile
 import time
 #from django.shortcuts import render
-from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job
+from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence
 from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis
 import gzip
 import shutil
@@ -3517,3 +3517,35 @@ def basecall(request):
         'success': f'{len(uploaded_ids)} files uploaded.',
         'uploaded_ids': uploaded_ids,
     })
+
+
+def usernanoporesequences(request):
+    if request.method == 'GET':
+        # Get user_id from query parameters
+        user_id = request.GET.get('user_id')
+        if not user_id:
+            user_id = request.user.id if request.user and request.user else None
+        if not user_id:
+            return JsonResponse({'error': 'Missing user'}, status=400)
+
+        try:
+            # Fetch the user object based on the provided user_id
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return JsonResponse({'error': 'User not found'}, status=404)
+
+        # Query all UserNanoporeSequence for this user and select related NanoporeSequence
+        user_seqs = UserNanoporeSequence.objects.filter(user=user).select_related('nanopore_sequence')
+
+        # Build list of dicts with id, name, and file URL for each NanoporeSequence
+        data = []
+        for us in user_seqs:
+            seq = us.nanopore_sequence
+            data.append({
+                'id': seq.id,
+                'name': seq.name,
+            })
+
+        return JsonResponse({'nanopore_sequences': data}, status=200)
+
+    return JsonResponse({'error': 'Invalid request method'}, status=400)
