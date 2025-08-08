@@ -55,7 +55,7 @@ def check_job(tapis, job_uuid, job_obj):
                 try:
                     tapis.files.delete(
                         systemId="js2_dnasubway_full_gpu",
-                        path=f"home/{user.username}/job-{job_uuid}/fastq/{os.path.basename(file_path)}"
+                        path=f"home/exouser/{user.username}/job-{job_uuid}/fastq/{os.path.basename(file_path)}"
                     )
                     print(f"Deleted {file_path} from Tapis")
                 except Exception as e:
