@@ -2,6 +2,7 @@ from django.conf import settings
 import os
 from .models import BasecallingJob, PodFile, NanoporeSequence, UserNanoporeSequence
 from .utils import (
+    shelve_instance,
     ensure_instance_ready,
     get_service_token,
     generate_user_token,
@@ -50,6 +51,16 @@ def check_job(tapis, job_uuid, job_obj):
                 # Retrieve file content from Tapis
                 file_content = get_file_content(tapis, job_uuid, file_path)
 
+                # Delete file from Tapis after retrieval
+                try:
+                    tapis.files.delete(
+                        systemId="js2_dnasubway_full_gpu",  # e.g. 'tapis-job-files'
+                        path=f"home/{job_owner}/job-{job_uuid}/fastq/{os.path.basename(file_path)}"
+                    )
+                    print(f"Deleted {file_path} from Tapis")
+                except Exception as e:
+                    print(f"Failed to delete {file_path} from Tapis: {e}")
+
                 # Derive sequence filename and display name
                 seq_filename = f"{job_obj.id}.fastq.gz"  # sequence record ID placeholder (we’ll adjust)
                 last_part = os.path.basename(file_path)  # e.g. "96c4c27b..._unclassified.fastq.gz"
@@ -64,9 +75,6 @@ def check_job(tapis, job_uuid, job_obj):
                     f"{nanopore_sequence.id}.fastq.gz",
                     ContentFile(file_content)
                 )
-
-                print("Saving file to:", nanopore_sequence.file.path)
-                print("Exists after save:", os.path.exists(nanopore_sequence.file.path))
 
                 # Link sequence to user
                 UserNanoporeSequence.objects.create(
@@ -109,3 +117,18 @@ def poll_active_jobs():
 
         for job in user_jobs:
             check_job(tapis, job.job.uuid, job)
+
+    # --- After processing all jobs, re-check active jobs ---
+    remaining_jobs = (
+        BasecallingJob.objects
+        .select_related('job')
+        .exclude(job__status__in=['FINISHED', 'CANCELLED', 'FAILED'])
+    )
+
+    if not remaining_jobs.exists():
+        print(f"No active jobs remaining, shelving instance {settings.INSTANCE_NAME}")
+        instance_shelved, err = shelve_instance(settings.INSTANCE_NAME)
+        if err:
+            print(err)
+    else:
+        print(f"{remaining_jobs.count()} active jobs remain, instance stays active")

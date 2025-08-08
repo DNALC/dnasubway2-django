@@ -25,6 +25,43 @@ def run_openstack(cmd):
     full_cmd = f"source {OPENRC_PATH} && {cmd}"
     return subprocess.check_output(["bash", "-c", full_cmd], universal_newlines=True)
 
+def shelve_instance(instance_name):
+    MAX_WAIT_TIME = settings.MAX_WAIT_TIME
+    try:
+        state = run_openstack(f"/usr/local/bin/openstack server show -f json '{instance_name}'")
+        status = json.loads(state)["status"]
+
+        if status == "SHUTOFF":
+            run_openstack(f"/usr/local/bin/openstack server start '{instance_name}'")
+            for _ in range(MAX_WAIT_TIME // 10):
+                time_elapsed += 10
+                time.sleep(10)
+                state = run_openstack(f"/usr/local/bin/openstack server show -f json '{instance_name}'")
+                status = json.loads(state)["status"]
+                if status == "ACTIVE":
+                    break
+                print(f"Waiting for ACTIVE... Time elapsed: {time_elapsed}s")
+
+        if status != "ACTIVE":
+            return False, f"Instance '{instance_name}' is not ACTIVE (current state: {status})"
+
+        print(f"Shelving instance '{instance_name}'...")
+        run_openstack(f"/usr/local/bin/openstack server shelve --wait '{instance_name}'")
+
+        # Wait until instance is shelved
+        for _ in range(MAX_WAIT_TIME // 10):
+            time.sleep(10)
+            state = run_openstack(f"/usr/local/bin/openstack server show -f json '{instance_name}'")
+            status = json.loads(state)["status"]
+            if status in ["SHELVED", "SHELVED_OFFLOADED"]:
+                print(f"Instance shelved.")
+                return True, None
+
+        return False, f"Timeout: {instance_name} not SHELVED after {MAX_WAIT_TIME} seconds"
+
+    except Exception as e:
+        return False, str(e)
+
 def ensure_instance_ready(instance_name):
     MAX_WAIT_TIME = settings.MAX_WAIT_TIME
     def can_ssh():
