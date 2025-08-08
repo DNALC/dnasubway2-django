@@ -6,6 +6,7 @@ import json
 from urllib.request import urlopen
 import os
 import re
+import requests
 import subprocess
 import tempfile
 import time
@@ -16,6 +17,152 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 tapis = Tapis(base_url='https://cyverse.tapis.io', username=settings.TAPIS_CYVERSE_USERNAME, password=settings.TAPIS_CYVERSE_PASSWORD)
 #tapis.get_tokens()
+
+SERVICE_TOKEN = None
+
+def run_openstack(cmd):
+    OPENRC_PATH = settings.OPENRC_PATH
+    full_cmd = f"source {OPENRC_PATH} && {cmd}"
+    return subprocess.check_output(["bash", "-c", full_cmd], universal_newlines=True)
+
+def ensure_instance_ready(instance_name):
+    MAX_WAIT_TIME = settings.MAX_WAIT_TIME
+    def can_ssh():
+        ssh_cmd = (
+            "ssh -o ConnectTimeout=5 "
+            "-o BatchMode=yes "
+            "-o StrictHostKeyChecking=no "
+            "-i ~/.ssh/other/jetstream2 "
+            "exouser@149.165.171.197 exit"
+        )
+        try:
+            subprocess.check_call(ssh_cmd, shell=True)
+            return True
+        except subprocess.CalledProcessError:
+            return False
+
+    try:
+        time_elapsed = 0
+        state = run_openstack(f"/usr/local/bin/openstack server show -f json '{instance_name}'")
+        status = json.loads(state)["status"]
+
+        if status == "SHUTOFF":
+            run_openstack(f"/usr/local/bin/openstack server start '{instance_name}'")
+        elif status in ["SHELVED", "SHELVED_OFFLOADED"]:
+            run_openstack(f"/usr/local/bin/openstack server unshelve '{instance_name}'")
+
+        # Wait for it to become ACTIVE if necessary
+        if status in ["SHUTOFF", "SHELVED", "SHELVED_OFFLOADED"]:
+            for _ in range(MAX_WAIT_TIME // 10):
+                time_elapsed += 10
+                time.sleep(10)
+                state = run_openstack(f"/usr/local/bin/openstack server show -f json '{instance_name}'")
+                status = json.loads(state)["status"]
+                if status == "ACTIVE":
+                    break
+                print(f"Waiting for ACTIVE... Time elapsed: {time_elapsed}s")
+
+        if status != "ACTIVE":
+            return False, f"Instance {instance_name} did not become ACTIVE within {MAX_WAIT_TIME}s"
+
+        # Now wait for SSH availability
+        print("Instance is ACTIVE. Checking SSH availability...")
+        for _ in range(MAX_WAIT_TIME // 10):
+            if can_ssh():
+                print("SSH is now available.")
+                return True, None
+            time_elapsed += 10
+            print(f"SSH not available yet... Time elapsed: {time_elapsed}s")
+            time.sleep(10)
+
+        return False, f"SSH not available on instance {instance_name} after {MAX_WAIT_TIME} seconds."
+
+    except Exception as e:
+        return False, str(e)
+
+def get_service_token():
+    global SERVICE_TOKEN
+    SERVICE_USERNAME = settings.TAPIS_SERVICE_USERNAME
+    SERVICE_PASSWORD = settings.TAPIS_SERVICE_PASSWORD
+    BASE_URL = settings.TAPIS_URL
+
+    payload = {
+        "account_type": "service",
+        "token_tenant_id": "admin",
+        "token_username": SERVICE_USERNAME,
+        "target_site_id": "tacc",
+        "access_token_ttl": 99999,
+    }
+
+    headers = {
+        'X-Tapis-Tenant': 'admin',
+        'X-Tapis-User': SERVICE_USERNAME
+    }
+
+    try:
+        rsp = requests.post(
+            url=f"{BASE_URL}/v3/tokens",
+            auth=(SERVICE_USERNAME, SERVICE_PASSWORD),
+            headers=headers,
+            json=payload
+        )
+        rsp.raise_for_status()
+        result = rsp.json()["result"]["access_token"]
+        SERVICE_TOKEN = result["access_token"]
+    except Exception as e:
+        print(f"Error generating token: {e}; message: {rsp.content}")
+
+def generate_user_token(username):
+    if not SERVICE_TOKEN:
+        return None
+    SERVICE_USERNAME = settings.TAPIS_SERVICE_USERNAME
+    BASE_URL = settings.TAPIS_URL
+    payload = {
+        "account_type": "user",
+        "token_tenant_id": SERVICE_USERNAME,
+        "token_username": username,  # the username of the user you authenticated separately
+        "target_site_id": "tacc",
+        "access_token_ttl": 14400, # this dictates how long the user token lasts; we recommend 4 hours
+    }
+
+    headers = {'X-Tapis-Tenant': 'admin', 'X-Tapis-User': SERVICE_USERNAME, 'X-Tapis-Token': SERVICE_TOKEN}
+    rsp = requests.post(url=f"{BASE_URL}/v3/tokens", headers=headers, json=payload)
+    try:
+        rsp.raise_for_status()
+        result = rsp.json()["result"]["access_token"]
+        user_token = result["access_token"]
+        return user_token
+    except Exception as e:
+        print(f"Error generating token: {e}; message: {rsp.content}")
+        return None
+
+def connect_to_tapis(username, user_token):
+    BASE_URL = settings.TAPIS_URL
+    t = Tapis(base_url= BASE_URL, username=username, access_token=user_token)
+    return t
+
+def list_all_files(tapis, job_uuid, output_path='/', limit=150):
+    files = []
+
+    # List current path contents
+    listing = tapis.jobs.getJobOutputList(jobUuid=job_uuid, outputPath=output_path, limit=limit)
+
+    for item in listing:
+        path = os.path.join(output_path, item.name)
+
+        if item.type == 'dir':
+            # Recurse into subdirectory
+            files.extend(list_all_files(tapis, job_uuid, path, limit=200))
+        else:
+            files.append(path)
+
+    return files
+
+def get_file_content(tapis, job_uuid, file_path):
+    # Use getJobOutputDownload() to retrieve file content
+    content = tapis.jobs.getJobOutputDownload(jobUuid=job_uuid, outputPath=file_path)
+    return content
+
 
 def extract_sequences(fasta_content):
     try:
