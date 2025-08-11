@@ -3542,7 +3542,7 @@ def usernanoporesequences(request):
             seq = us.nanopore_sequence
             name = seq.name.strip()
             if '-' in name:
-                prefix = name.split('-', 1)[0]
+                prefix = name.rsplit('-', 1)[0]
             else:
                 prefix = "Ungrouped sequences"
             # Extract prefix before first dash, or whole name if no dash
