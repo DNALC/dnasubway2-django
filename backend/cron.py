@@ -20,7 +20,7 @@ def get_job_status(tapis, job_uuid):
         print("Error retrieving job details:", e)
         return None
 
-def check_job(tapis, job_uuid, job_obj):
+def check_job(tapis, job_uuid, job_obj, admin_tapis):
     print("Checking job " + job_uuid)
     status = get_job_status(tapis, job_uuid)
     if status:
@@ -55,7 +55,7 @@ def check_job(tapis, job_uuid, job_obj):
 
                 # Delete file from Tapis after retrieval
                 try:
-                    tapis.files.delete(
+                    admin_tapis.files.delete(
                         systemId="js2_dnasubway_full_gpu",
                         path=f"home/exouser/{user.username}/job-{job_uuid}/fastq/{os.path.basename(file_path)}"
                     )
@@ -109,7 +109,10 @@ def poll_active_jobs():
     # 4. Group by user
     usernames = set(j.job.user.username for j in jobs)
     print("Got users") 
-    print(usernames) 
+    print(usernames)
+
+    admin_token = generate_user_token("jacobs")
+    admin_tapis = connect_to_tapis("jacobs", admin_token)
 
     for username in usernames:
         print("Checking user " + username)
@@ -120,7 +123,7 @@ def poll_active_jobs():
         tapis = connect_to_tapis(username, user_token)
 
         for job in user_jobs:
-            check_job(tapis, job.job.uuid, job)
+            check_job(tapis, job.job.uuid, job, admin_tapis)
 
     # --- After processing all jobs, re-check active jobs ---
     remaining_jobs = (
