@@ -900,7 +900,6 @@ def create_basecall_job(tapis, job, user, uploaded_ids, model, kit, output):
     job.uuid = job_uuid
     job.status = "PENDING"
     job.save()
-    basecall_job = BasecallingJob.objects.create(job=job, model=model, output_name=output, kit_name=kit)
     return job_uuid
 
 @shared_task
@@ -918,7 +917,6 @@ def run_basecall_task(job_id, model, kit, output):
                 pf.delete()
             job.status = "FAILED_BOOT"
             job.save()
-            basecall_job = BasecallingJob.objects.create(job=job, model=model, output_name=output, kit_name=kit)
             return {
                 "status": "error",
                 "message": err

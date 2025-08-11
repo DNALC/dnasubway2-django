@@ -3492,6 +3492,7 @@ def basecall(request):
     podfile_instances = []
     warnings = []
     job = placeholder_tapis_job(user, 'dnasubway-dorado')
+    BasecallingJob.objects.create(job=job, model=model, output_name=output, kit_name=kit)
 
     for relative_path, base64_content in files.items():
         try:
