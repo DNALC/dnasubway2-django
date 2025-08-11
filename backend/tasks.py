@@ -918,6 +918,7 @@ def run_basecall_task(job_id, model, kit, output):
                 pf.delete()
             job.status = "FAILED_BOOT"
             job.save()
+            basecall_job = BasecallingJob.objects.create(job=job, model=model, output_name=output, kit_name=kit)
             return {
                 "status": "error",
                 "message": err
