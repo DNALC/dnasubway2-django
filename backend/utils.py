@@ -369,6 +369,12 @@ def submit_tapis_job(user, appId, params, projectId):
         print("Error submitting job:", e)
         return None
 
+def placeholder_tapis_job(user, appId):
+    job_uuid = str(uuid.uuid4()) + "-123"
+    print("Placeholder job created successfully. Job UUID:", job_uuid)
+    job = Job.objects.create(user=user, appId=appId, uuid=job_uuid, status='STARTING')
+    return job
+
 def fake_tapis_job(user, appId, params, projectId):
     project = Project.objects.get(id=projectId)
     job_uuid = str(uuid.uuid4()) + "-123"

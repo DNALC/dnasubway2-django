@@ -348,6 +348,8 @@ class ProjectDataFile(models.Model):
 
 class Job(models.Model):
     STATUS_CHOICES = [
+        ('STARTING', 'System instance booting'),
+        ('FAILED_BOOT', 'System instance booting failed'),
         ('PENDING', 'Job processing beginning'),
         ('PROCESSING_INPUTS', 'Identifying input files for staging'),
         ('STAGING_INPUTS', 'Transferring job input data to execution system'),
@@ -371,6 +373,11 @@ class Job(models.Model):
 
     def __str__(self):
         return f"Job {self.uuid} - {self.status}"
+
+class JobPodFile(models.Model):
+    job = models.ForeignKey(Job, on_delete=models.CASCADE)
+    podfile = models.ForeignKey(PodFile, on_delete=models.CASCADE)
+
 
 class BasecallingJob(models.Model):
     job = models.ForeignKey(Job, on_delete=models.CASCADE)

@@ -11,7 +11,8 @@ from ansi2html import Ansi2HTMLConverter
 from django.utils import timezone
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from .models import FastpJob, FastpResult, ProjectNanoporeSequence, PorechopResult, PorechopJob, MedakaJob, MedakaResult, DataFile, ProjectDataFile, BlastJob, BlastResult, Job, BlastData, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData
+from .models import FastpJob, FastpResult, ProjectNanoporeSequence, PorechopResult, PorechopJob, MedakaJob, MedakaResult, DataFile, ProjectDataFile, BlastJob, BlastResult, Job, BlastData, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, JobPodFile, BasecallingJob
+from .utils import get_service_token, generate_user_token, connect_to_tapis, ensure_instance_ready
 from django.conf import settings
 import tempfile
 
@@ -873,6 +874,72 @@ def run_phylip_ml_task(job_id, dataFile, outgroup):
         if job:
             job.status = "FAILED"
             #job.message = str(e)
+            job.save()
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+def create_basecall_job(tapis, job, user, uploaded_ids, model, kit, output):
+    url_start = settings.REACT_URL + "backend/pod5_files/"
+    path_end = ".pod5"
+    fileInputs = []
+    for i in uploaded_ids:
+        fileInputs.append({"name": str(i) + path_end, "sourceUrl": url_start + str(i) + path_end, "targetPath": "."})
+    job_params = {
+         "name": "basecall",
+         "appId": "dnasubway-dorado",
+         "appVersion":"0.0.3",
+         "fileInputs": fileInputs,
+         "parameterSet":{
+             "envVariables":[{"key":"MODEL", "value":model},{"key": "KIT_NAME", "value": kit},{"key": "OUTPUT_NAME", "value": output}]
+         }
+    }
+    job_response = tapis.jobs.submitJob(**job_params)
+    job_uuid = job_response.get('uuid')
+    job.uuid = job_uuid
+    job.status = "PENDING"
+    job.save()
+    basecall_job = BasecallingJob.objects.create(job=job, model=model, output_name=output, kit_name=kit)
+    return job_uuid
+
+@shared_task
+def run_basecall_task(job_id, model, kit, output):
+    try:
+        # Fetch the associated Job instance
+        job = Job.objects.get(id=job_id)
+        user = job.user
+        active, err = ensure_instance_ready(settings.INSTANCE_NAME)
+        if err:
+            job_pod_files = JobPodFile.objects.filter(job = job)
+            for job_pod_file in job_pod_files:
+                pf = job_pod_file.podfile
+                pf.file.delete(save=False)
+                pf.delete()
+            job.status = "FAILED_BOOT"
+            job.save()
+            return {
+                "status": "error",
+                "message": err
+            }
+        get_service_token()
+        user_token = generate_user_token(user.username)
+        tapis = connect_to_tapis(user.username, user_token)
+        job_pod_files = JobPodFile.objects.filter(job = job)
+        uploaded_ids = []
+        for job_pod_file in job_pod_files:
+            pf = job_pod_file.podfile
+            uploaded_ids.append(pf.id)
+        job_uuid = create_basecall_job(tapis, job, user, uploaded_ids, model, kit, output)
+        return {
+            "status": "success",
+            "message": "Basecall job created."
+        }
+
+    except Exception as e:
+        # Handle exceptions and mark the job as "FAILED"
+        if job:
+            job.status = "FAILED"
             job.save()
         return {
             "status": "error",

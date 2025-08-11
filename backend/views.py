@@ -22,15 +22,16 @@ import string
 import tempfile
 import time
 #from django.shortcuts import render
-from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence
-from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis
+from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile
+from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job
 import gzip
 import shutil
-from .tasks import run_fastp_task, run_porechop_task, run_medaka_task  # Celery task
+from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task  # Celery task
 from Bio import SeqIO
 import base64
 from .models import Author, MuscleTrim
 from tapipy.tapis import Tapis
+from collections import defaultdict
 
 PROTOCOL = getattr(settings, 'PROTOCOL') or "https://"
 
@@ -3462,16 +3463,11 @@ def basecall(request):
 
     active_job_exists = BasecallingJob.objects.filter(
         job__user=user
-    ).exclude(job__status__in=['FINISHED', 'FAILED', 'STOPPED', 'CANCELLED']).exists()
+    ).exclude(job__status__in=['FINISHED', 'FAILED', 'STOPPED', 'CANCELLED', 'FAILED_BOOT']).exists()
 
     if active_job_exists:
         return JsonResponse({
-            'error': 'You already have an active base-calling job. Please wait for it to finish before starting another.'
-        }, status=400)
-
-    if PodFile.objects.filter(user=user).exists():
-        return JsonResponse({
-            'error': 'You have a queued base-calling job. Please wait for it to finish or timeout before submitting a new base-calling job.'
+            'error': 'You already have an active or queued base-calling job. Please wait for it to finish before starting another.'
         }, status=400)
 
     output = data.get('output_name', 'testname')
@@ -3495,6 +3491,7 @@ def basecall(request):
     uploaded_ids = []
     podfile_instances = []
     warnings = []
+    job = placeholder_tapis_job(user, 'dnasubway-dorado')
 
     for relative_path, base64_content in files.items():
         try:
@@ -3510,22 +3507,12 @@ def basecall(request):
         # Save file using Django's storage system
         podfile_filename = f"{podfile_instance.id}.pod5"
         podfile_instance.file.save(podfile_filename, ContentFile(raw_bytes), save=True)
+        JobPodFile.objects.create(podfile = podfile_instance, job=job)
 
         podfile_instances.append(podfile_instance)
         uploaded_ids.append(podfile_instance.id)
 
-    active, err = ensure_instance_ready(settings.INSTANCE_NAME)
-    if err:
-        for pf in podfile_instances:
-            pf.file.delete(save=False)
-            pf.delete()
-        return JsonResponse({'error': err})
-
-    get_service_token()
-    user_token = generate_user_token(user.username)
-    tapis = connect_to_tapis(user.username, user_token)
-
-    job_uuid = create_basecall_job(tapis, user, uploaded_ids, model, kit, output)
+    run_basecall_task.delay(job.id, model, kit, output)
     return JsonResponse({
         'success': f'{len(uploaded_ids)} files uploaded.',
         'uploaded_ids': uploaded_ids,
@@ -3550,16 +3537,24 @@ def usernanoporesequences(request):
         # Query all UserNanoporeSequence for this user and select related NanoporeSequence
         user_seqs = UserNanoporeSequence.objects.filter(user=user).select_related('nanopore_sequence')
 
-        # Build list of dicts with id, name, and file URL for each NanoporeSequence
-        data = []
+        grouped = defaultdict(list)
         for us in user_seqs:
             seq = us.nanopore_sequence
-            data.append({
+            name = seq.name.strip()
+            if '-' in name:
+                prefix = name.split('-', 1)[0]
+            else:
+                prefix = "Ungrouped sequences"
+            # Extract prefix before first dash, or whole name if no dash
+            grouped[prefix].append({
                 'id': seq.id,
                 'name': seq.name,
             })
 
-        return JsonResponse({'nanopore_sequences': data}, status=200)
+        # Convert defaultdict to normal dict for JSON serialization
+        grouped_dict = dict(grouped)
+
+        return JsonResponse({'nanopore_sequences': grouped_dict}, status=200)
 
     return JsonResponse({'error': 'Invalid request method'}, status=400)
 

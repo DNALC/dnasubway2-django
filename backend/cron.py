@@ -1,6 +1,6 @@
 from django.conf import settings
 import os
-from .models import BasecallingJob, PodFile, NanoporeSequence, UserNanoporeSequence
+from .models import BasecallingJob, PodFile, NanoporeSequence, UserNanoporeSequence, JobPodFile
 from .utils import (
     shelve_instance,
     ensure_instance_ready,
@@ -30,8 +30,10 @@ def check_job(tapis, job_uuid, job_obj):
 
         # If job is in a terminal state, remove PodFiles
         if current_status in ["FAILED", "STOPPED", "FINISHED", "CANCELLED"]:
+            job_pod_files = JobPodFile.objects.filter(job = job_obj.job)
             # Delete PodFiles (both DB record + actual file)
-            for pod_file in PodFile.objects.filter(user=user):
+            for job_pod_file in job_pod_files:
+                pod_file = job_pod_file.podfile
                 pod_file.file.delete(save=False)  # remove file from disk
                 pod_file.delete()
 
@@ -87,7 +89,7 @@ def poll_active_jobs():
     jobs = (
         BasecallingJob.objects
         .select_related('job', 'job__user')
-        .exclude(job__status__in=['FINISHED', 'CANCELLED', 'FAILED'])
+        .exclude(job__status__in=['FINISHED', 'CANCELLED', 'FAILED', 'STOPPED', 'STARTING', 'FAILED_BOOT'])
     )
     if not jobs.exists():
         return
@@ -124,7 +126,7 @@ def poll_active_jobs():
     remaining_jobs = (
         BasecallingJob.objects
         .select_related('job')
-        .exclude(job__status__in=['FINISHED', 'CANCELLED', 'FAILED'])
+        .exclude(job__status__in=['FINISHED', 'CANCELLED', 'FAILED', 'STOPPED', 'STARTING', 'FAILED_BOOT'])
     )
 
     if not remaining_jobs.exists() and not PodFile.objects.exists():
