@@ -3573,14 +3573,14 @@ def upload_user_nanopore_file(request):
         return JsonResponse({'error': 'seq_ids is required'}, status=400)
 
     # Convert seq_ids to a list if it's a string
-    if isinstance(seq_ids, str):
-        seq_ids = [seq_ids]
+    if isinstance(nanoporesequence_ids, str):
+        nanoporesequence_ids = [nanoporesequence_ids]
 
-    if not isinstance(seq_ids, list):
+    if not isinstance(nanoporesequence_ids, list):
         return JsonResponse({'error': 'seq_ids must be a list or a string'}, status=400)
 
     responses = []
-    for seq_id in seq_ids:
+    for seq_id in nanoporesequence_ids:
         try:
             nanopore_sequence = NanoporeSequence.objects.get(id=seq_id)
             # Link NanoporeSequence to the project
