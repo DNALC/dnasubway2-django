@@ -132,7 +132,7 @@ def poll_active_jobs():
         .exclude(job__status__in=['FINISHED', 'CANCELLED', 'FAILED', 'STOPPED', 'STARTING', 'FAILED_BOOT'])
     )
 
-    if not remaining_jobs.exists() and not PodFile.objects.exists():
+    if not remaining_jobs.exists() and not PodFile.objects.exists() and settings.SHELVE_INSTANCE:
         print(f"No active jobs or pod files remaining, shelving instance {settings.INSTANCE_NAME}")
         instance_shelved, err = shelve_instance(settings.INSTANCE_NAME)
         if err:
