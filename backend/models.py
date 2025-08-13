@@ -226,6 +226,9 @@ class UserNanoporeSequence(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     nanopore_sequence = models.ForeignKey(NanoporeSequence, on_delete=models.CASCADE)
 
+    class Meta:
+        unique_together = ('user', 'nanopore_sequence')
+
     def __str__(self):
         return f"User {self.user_id} - Sequence {self.nanopore_sequence.name}"
 
@@ -604,3 +607,24 @@ class SequenceRepository(models.Model):
 
     def __str__(self):
         return self.name
+
+class DataFolder(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+
+    class Meta:
+        unique_together = ('user', 'name')
+
+class SangerSequenceFolder(models.Model):
+    datafile = models.ForeignKey('DataFile', on_delete=models.CASCADE)
+    datafolder = models.ForeignKey('DataFolder', on_delete=models.CASCADE)
+
+    class Meta:
+        unique_together = ('datafile', 'datafolder')
+
+class NanoporeSequenceFolder(models.Model):
+    usernanoporesequence = models.ForeignKey('UserNanoporeSequence', on_delete=models.CASCADE)
+    datafolder = models.ForeignKey('DataFolder', on_delete=models.CASCADE)
+
+    class Meta:
+        unique_together = ('usernanoporesequence', 'datafolder')
