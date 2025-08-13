@@ -1,5 +1,6 @@
 from django.conf import settings
 import os
+import re
 from .models import BasecallingJob, PodFile, NanoporeSequence, UserNanoporeSequence, JobPodFile
 from .utils import (
     shelve_instance,
