@@ -22,7 +22,7 @@ import string
 import tempfile
 import time
 #from django.shortcuts import render
-from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile
+from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder
 from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job
 import gzip
 import shutil
@@ -3626,3 +3626,194 @@ def upload_pod5(request):
         return JsonResponse({"id": podfile_instance.id})
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
+def create_datafolder(request):
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    user = request.user
+    name = parsed_data['data'].get('name')
+
+    folder, created = DataFolder.objects.get_or_create(user=user, name=name)
+    if not created:
+        return JsonResponse({'error': 'DataFolder with this name already exists.'}, status=400)
+
+    return JsonResponse({'id': folder.id, 'name': folder.name})
+
+def rename_datafolder(request):
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    folder_id = parsed_data['data'].get('id')
+    new_name = parsed_data['data'].get('name')
+    try:
+        folder = DataFolder.objects.get(id=folder_id, user=request.user)
+    except DataFolder.DoesNotExist:
+        return JsonResponse({'error': 'Invalid DataFolder for user'}, status=404)
+
+    if DataFolder.objects.filter(user=request.user, name=new_name).exclude(id=folder_id).exists():
+        return JsonResponse({'error': 'Another folder with this name already exists.'}, status=400)
+
+    folder.name = new_name
+    folder.save()
+    return JsonResponse({'id': folder.id, 'name': folder.name})
+
+def delete_datafolder(request):
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    folder_id = parsed_data['data'].get('id')
+    try:
+        folder = DataFolder.objects.get(id=folder_id, user=request.user)
+    except DataFolder.DoesNotExist:
+        return JsonResponse({'error': 'Invalid DataFolder for user'}, status=404)
+    folder.delete()
+    return JsonResponse({'status': 'success'})
+
+def add_sanger_to_folder(request):
+    parsed_data = parse_user_data(request)
+    data = parsed_data.get('data', {})
+    datafile_id = data.get('datafile_id')
+    folder_id = data.get('datafolder_id')
+
+    try:
+        datafile = DataFile.objects.get(id=datafile_id, user=request.user)
+    except DataFile.DoesNotExist:
+        return JsonResponse({'error': 'Invalid DataFile for user'}, status=404)
+    try:
+        folder = DataFolder.objects.get(id=folder_id, user=request.user)
+    except DataFolder.DoesNotExist:
+        return JsonResponse({'error': 'Invalid DataFolder for user'}, status=404)
+
+    sanger_folder, created = SangerSequenceFolder.objects.get_or_create(
+        datafile=datafile,
+        datafolder=folder
+    )
+    return JsonResponse({'id': sanger_folder.id})
+
+def remove_sanger_from_folder(request):
+    parsed_data = parse_user_data(request)
+    folder_item_id = parsed_data['data'].get('id')
+
+    try:
+        sanger_folder = SangerSequenceFolder.objects.get(
+            id=folder_item_id,
+            datafolder__user=request.user  # ensures the folder belongs to the user
+        )
+    except SangerSequenceFolder.DoesNotExist:
+        return JsonResponse({'error': 'Invalid SangerSequenceFolder for user'}, status=404)
+
+    sanger_folder.delete()
+    return JsonResponse({'status': 'success'})
+
+def add_nanopore_to_folder(request):
+    parsed_data = parse_user_data(request)
+    data = parsed_data.get('data', {})
+    nanopore_id = data.get('nanopore_sequence_id')
+    folder_id = data.get('datafolder_id')
+
+    try:
+        nanopore = NanoporeSequence.objects.get(id=nanopore_id)
+    except NanoporeSequence.DoesNotExist:
+        return JsonResponse({'error': 'Invalid NanoporeSequence'}, status=404)
+
+    try:
+        folder = DataFolder.objects.get(id=folder_id, user=request.user)
+    except DataFolder.DoesNotExist:
+        return JsonResponse({'error': 'Invalid DataFolder for user'}, status=404)
+
+    try:
+        user_nanopore_seq = UserNanoporeSequence.objects.get(user=request.user, nanopore_sequence=nanopore)
+    except UserNanoporeSequence.DoesNotExist:
+        return JsonResponse({'error': 'Invalid UserNanoporeSequence'}, status=404)
+
+    nanopore_folder, _ = NanoporeSequenceFolder.objects.get_or_create(
+        usernanoporesequence=user_nanopore_seq,
+        datafolder=folder
+    )
+    return JsonResponse({'id': nanopore_folder.id})
+
+def remove_nanopore_from_folder(request):
+    parsed_data = parse_user_data(request)
+    folder_item_id = parsed_data['data'].get('id')
+
+    try:
+        nanopore_folder = NanoporeSequenceFolder.objects.get(
+            id=folder_item_id,
+            datafolder__user=request.user
+        )
+    except NanoporeSequenceFolder.DoesNotExist:
+        return JsonResponse({'error': 'Invalid NanoporeSequenceFolder for user'}, status=404)
+
+    nanopore_folder.delete()
+    return JsonResponse({'status': 'success'})
+
+def list_folders_with_connections(request):
+    if request.method != "GET":
+        return JsonResponse({'error': 'GET method required'}, status=405)
+
+    if not request.user or not request.user.is_authenticated:
+        return JsonResponse({'error': 'Authentication required'}, status=401)
+    user = request.user
+
+    data = {}
+
+    # 1. Add repository items first
+    data[""] = []
+
+    # Sanger sequences in repository not in any folder
+    linked_sanger_ids = set(
+        SangerSequenceFolder.objects.filter(datafolder__user=user)
+        .values_list('datafile_id', flat=True)
+    )
+    sanger_in_repo = DataFile.objects.filter(in_sequence_repository=True, user=user)
+    for s in sanger_in_repo:
+        if s.id not in linked_sanger_ids:
+            data[""].append({
+                "name": s.name,
+                "id": s.id,
+                "type": "sanger"
+            })
+
+    # Nanopore sequences not in any folder
+    linked_nano_ids = set(
+        NanoporeSequenceFolder.objects.filter(datafolder__user=user)
+        .values_list('usernanoporesequence__id', flat=True)
+    )
+    all_user_nanopores = UserNanoporeSequence.objects.filter(user=user)
+    for un in all_user_nanopores:
+        if un.id not in linked_nano_ids:
+            data[""].append({
+                "name": un.nanopore_sequence.name,
+                "id": un.nanopore_sequence.id,
+                "type": "nanopore"
+            })
+
+    # 2. Add actual folders and their items
+    folders = DataFolder.objects.filter(user=user)
+    for folder in folders:
+        folder_name = folder.name
+        data[folder_name] = []
+
+        # Sanger connections
+        sanger_connections = SangerSequenceFolder.objects.filter(datafolder=folder)
+        for sf in sanger_connections:
+            data[folder_name].append({
+                "name": sf.datafile.name,
+                "id": sf.datafile.id,
+                "type": "sanger"
+            })
+
+        # Nanopore connections
+        nano_connections = NanoporeSequenceFolder.objects.filter(datafolder=folder)
+        for nf in nano_connections:
+            data[folder_name].append({
+                "name": nf.usernanoporesequence.nanopore_sequence.name,
+                "id": nf.usernanoporesequence.nanopore_sequence.id,
+                "type": "nanopore"
+            })
+
+    return JsonResponse(data)
