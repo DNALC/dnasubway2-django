@@ -3482,41 +3482,36 @@ def basecall(request):
             'error': 'You already have a base-calling job with the chosen output name. Choose a different output name.'
         }, status=400)
 
-    files = data.get('files')
+    podfile_ids = data.get('podfile_ids')
+    if not podfile_ids or not isinstance(podfile_ids, list):
+        return JsonResponse({'error': 'podfile_ids must be a list of IDs'}, status=400)
+
     model = data.get('model', 'fast')
     kit = data.get('kit', 'SQK-RBK114-24')
-    if not files:
-        return JsonResponse({'error': 'files is required'}, status=400)
 
-    uploaded_ids = []
-    podfile_instances = []
-    warnings = []
     job = placeholder_tapis_job(user, 'dnasubway-dorado')
     BasecallingJob.objects.create(job=job, model=model, output_name=output, kit_name=kit)
 
-    for relative_path, base64_content in files.items():
+    linked_count = 0
+    warnings = []
+
+    for pid in podfile_ids:
         try:
-            # Decode the base64 content
-            raw_bytes = base64.b64decode(base64_content)
-        except Exception as e:
-            warnings.append(f"Failed to decode {relative_path}: {e}")
-            continue
+            podfile_instance = PodFile.objects.get(id=pid, user=user)
+            JobPodFile.objects.create(podfile=podfile_instance, job=job)
+            linked_count += 1
+        except PodFile.DoesNotExist:
+            warnings.append(f"PodFile with ID {pid} not found or not owned by user.")
 
-        # Create PodFile instance
-        podfile_instance = PodFile.objects.create(user=user, name=os.path.basename(relative_path))
-
-        # Save file using Django's storage system
-        podfile_filename = f"{podfile_instance.id}.pod5"
-        podfile_instance.file.save(podfile_filename, ContentFile(raw_bytes), save=True)
-        JobPodFile.objects.create(podfile = podfile_instance, job=job)
-
-        podfile_instances.append(podfile_instance)
-        uploaded_ids.append(podfile_instance.id)
+    if linked_count == 0:
+        return JsonResponse({'error': 'No valid PodFiles provided.'}, status=400)
 
     run_basecall_task.delay(job.id, model, kit, output)
+
     return JsonResponse({
-        'success': f'{len(uploaded_ids)} files uploaded.',
-        'uploaded_ids': uploaded_ids,
+        'success': f'{linked_count} files linked to job.',
+        'linked_ids': podfile_ids,
+        'warnings': warnings,
     })
 
 
@@ -3606,3 +3601,25 @@ def upload_user_nanopore_file(request):
             })
 
     return JsonResponse({'results': responses, 'status': 'success'}, status=200)
+
+def upload_pod5(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "POST method required"}, status=405)
+
+    user = request.user
+    if not user.is_authenticated:
+        return JsonResponse({"error": "Authentication required"}, status=401)
+
+    if 'file' not in request.FILES:
+        return JsonResponse({"error": "No file uploaded"}, status=400)
+
+    uploaded_file = request.FILES['file']
+    try:
+        podfile_instance = PodFile.objects.create(user=user, name=uploaded_file.name)
+
+        podfile_filename = f"{podfile_instance.id}.pod5"
+        podfile_instance.file.save(podfile_filename, uploaded_file, save=True)
+
+        return JsonResponse({"id": podfile_instance.id})
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
