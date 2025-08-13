@@ -53,16 +53,6 @@ def check_job(tapis, job_uuid, job_obj, admin_tapis):
                 # Retrieve file content from Tapis
                 file_content = get_file_content(tapis, job_uuid, file_path)
 
-                # Delete file from Tapis after retrieval
-                try:
-                    admin_tapis.files.delete(
-                        systemId="js2_dnasubway_full_gpu",
-                        path=f"home/exouser/{user.username}/job-{job_uuid}/fastq/{os.path.basename(file_path)}"
-                    )
-                    print(f"Deleted {file_path} from Tapis")
-                except Exception as e:
-                    print(f"Failed to delete {file_path} from Tapis: {e}")
-
                 # Derive sequence filename and display name
                 seq_filename = f"{job_obj.id}.fastq.gz"  # sequence record ID placeholder (we’ll adjust)
                 last_part = os.path.basename(file_path)  # e.g. "96c4c27b..._unclassified.fastq.gz"
@@ -84,6 +74,15 @@ def check_job(tapis, job_uuid, job_obj, admin_tapis):
                     user=user,
                     nanopore_sequence=nanopore_sequence
                 )
+            # Delete files from Tapis after retrieval
+            try:
+                admin_tapis.files.delete(
+                    systemId="js2_dnasubway_full_gpu",
+                    path=f"home/exouser/{user.username}/job-{job_uuid}/"
+                )
+                print(f"Deleted /home/exouser/{user.username}/job-{job_uuid}/ from Tapis")
+            except Exception as e:
+                print(f"Failed to delete /home/exouser/{user.username}/job-{job_uuid}/ from Tapis: {e}")
 
 def poll_active_jobs():
     # 1. Query active jobs
