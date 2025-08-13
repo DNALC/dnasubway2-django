@@ -3439,6 +3439,7 @@ def basecall_jobs(request):
         BasecallingJob.objects
         .select_related('job')
         .filter(job__user=request.user)
+        .order_by('-created_at')  # newest first
     )
 
     data = [
