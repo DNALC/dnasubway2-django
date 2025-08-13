@@ -1,7 +1,7 @@
 from django.conf import settings
 import os
 import re
-from .models import BasecallingJob, PodFile, NanoporeSequence, UserNanoporeSequence, JobPodFile
+from .models import BasecallingJob, PodFile, NanoporeSequence, UserNanoporeSequence, JobPodFile, DataFolder, NanoporeSequenceFolder
 from .utils import (
     shelve_instance,
     ensure_instance_ready,
@@ -41,6 +41,7 @@ def check_job(tapis, job_uuid, job_obj, admin_tapis):
         # If FINISHED, save .fastq.gz files as NanoporeSequence
         if current_status == "FINISHED":
             all_files = list_all_files(tapis, job_uuid)
+            folder, _ = DataFolder.objects.get_or_create(user=user, name=job_obj.output_name)
 
             for file_path in all_files:
                 if not file_path.endswith(".fastq.gz"):
@@ -71,6 +72,10 @@ def check_job(tapis, job_uuid, job_obj, admin_tapis):
                 UserNanoporeSequence.objects.create(
                     user=user,
                     nanopore_sequence=nanopore_sequence
+                )
+                nanopore_folder, _ = NanoporeSequenceFolder.objects.get_or_create(
+                    usernanoporesequence=user_nanopore_seq,
+                    datafolder=folder
                 )
             # Delete files from Tapis after retrieval
             try:
