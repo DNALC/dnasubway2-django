@@ -51,7 +51,9 @@ def check_job(tapis, job_uuid, job_obj, admin_tapis):
                     continue
 
                 # Retrieve file content from Tapis
+                print("GET " + file_path)
                 file_content = get_file_content(tapis, job_uuid, file_path)
+                print("GOT " + file_path)
 
                 # Derive sequence filename and display name
                 seq_filename = f"{job_obj.id}.fastq.gz"  # sequence record ID placeholder (we’ll adjust)
