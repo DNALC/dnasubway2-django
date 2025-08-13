@@ -69,7 +69,7 @@ def check_job(tapis, job_uuid, job_obj, admin_tapis):
                 )
 
                 # Link sequence to user
-                UserNanoporeSequence.objects.create(
+                user_nanopore_seq = UserNanoporeSequence.objects.create(
                     user=user,
                     nanopore_sequence=nanopore_sequence
                 )
