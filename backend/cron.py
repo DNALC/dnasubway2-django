@@ -37,11 +37,6 @@ def check_job(tapis, job_uuid, job_obj, admin_tapis):
                 pod_file.file.delete(save=False)  # remove file from disk
                 pod_file.delete()
 
-        # Update status in DB
-        job_obj.job.status = current_status
-        job_obj.job.save(update_fields=["status"])
-        print("Job status:", current_status)
-
         # If FINISHED, save .fastq.gz files as NanoporeSequence
         if current_status == "FINISHED":
             all_files = list_all_files(tapis, job_uuid)
@@ -85,6 +80,11 @@ def check_job(tapis, job_uuid, job_obj, admin_tapis):
                 print(f"Deleted /home/exouser/{user.username}/job-{job_uuid}/ from Tapis")
             except Exception as e:
                 print(f"Failed to delete /home/exouser/{user.username}/job-{job_uuid}/ from Tapis: {e}")
+
+        # Update status in DB
+        job_obj.job.status = current_status
+        job_obj.job.save(update_fields=["status"])
+        print("Job status:", current_status)
 
 def poll_active_jobs():
     # 1. Query active jobs
