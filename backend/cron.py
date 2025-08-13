@@ -66,7 +66,8 @@ def check_job(tapis, job_uuid, job_obj, admin_tapis):
                 # Derive sequence filename and display name
                 seq_filename = f"{job_obj.id}.fastq.gz"  # sequence record ID placeholder (we’ll adjust)
                 last_part = os.path.basename(file_path)  # e.g. "96c4c27b..._unclassified.fastq.gz"
-                display_name = f"{job_obj.output_name}-{last_part.split('_')[-1]}"  # unclassified.fastq.gz
+                suffix_stripped = re.sub(r'\.fastq\.gz$', '', last_part)  # e.g. "96c4c27b..._unclassified"
+                display_name = f"{job_obj.output_name}-{suffix_stripped.split('_')[-1]}"  # unclassified
 
                 # Save NanoporeSequence
                 nanopore_sequence = NanoporeSequence.objects.create(
