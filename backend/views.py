@@ -3376,7 +3376,9 @@ def delete_nanopore_file(request):
 
     directories = NanoporeSampleSet.objects.values_list('directory', flat=True)
     in_sample_directory = any(nanopore_sequence.file.name.startswith(dir) for dir in directories)
-    if not in_sample_directory and ProjectNanoporeSequence.objects.filter(nanopore_sequence=nanopore_sequence).count() < 2:
+    is_user_sequence = UserNanoporeSequence.objects.filter(nanopore_sequence=nanopore_sequence).exists()
+    linked_to_other_projects = ProjectNanoporeSequence.objects.filter(nanopore_sequence=nanopore_sequence).count() > 1
+    if not in_sample_directory and not linked_to_other_projects and not is_user_sequence:
         nanopore_sequence.delete()
     pns.delete()
     return JsonResponse({'success': 'Sequence removed successfully'})
