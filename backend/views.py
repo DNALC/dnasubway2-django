@@ -2471,20 +2471,13 @@ def get_azenta_file_quality(request):
 
 def upload_sanger_files(request):
     PROTOCOL = request.scheme + "://"
-    if request.method != 'POST':
-        return JsonResponse({'error': 'Invalid request method, only POST allowed'}, status=405)
-    try:
-        data = json.loads(request.body)
-        pid = data.get('pid')
-        files = data.get('files')
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
 
-    if not pid or not files:
-        return JsonResponse({'error': 'pid and files are required'}, status=400)
-
-    # Get the project associated with the given pid
-    project = get_object_or_404(Project, id=pid)
+    data = parsed_data['data']
+    project = parsed_data['project']
+    files = data.get('files')
 
     temp_dir = create_temp_directory()
     warnings = []
