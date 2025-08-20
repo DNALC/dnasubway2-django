@@ -810,15 +810,12 @@ def project_info(request):
         return JsonResponse({'error': 'User is not authenticated'}, status=401)
 
     pid = request.GET.get('pid')
-    # Retrieve project info for the current authenticated user
-    try:
-        project = Project.objects.filter(id=pid, user=request.user)
-    except ValueError:
-        return JsonResponse({'error': 'Project not found'}, status=404)
+    # Retrieve project info for the current authenticated user or public
+    project = Project.objects.filter(
+        Q(id=pid) & (Q(user=request.user) | Q(public=True))
+    ).first()
     if not project:
         return JsonResponse({'error': 'Project not found'}, status=404)
-    else:
-        project = project.first()
     # Retrieve project data files for the current authenticated user
     project_data_files = ProjectDataFile.objects.filter(project=project).select_related('data_file').order_by('data_file__name')
     serialized_sequences = []
