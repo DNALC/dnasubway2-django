@@ -1084,12 +1084,13 @@ def public_projects(request):
 
         serialized_project = {
             'id': project.id,
+            'username': username,
             'title': project.title,
             'description': project.description,
             'sequencing_type': project.sequencing_type,
             'project_type': project.project_type,
             'created_date': project.created.strftime('%Y-%m-%d'),  # Format date as YYYY-MM-DD
-            'username': username,
+            'public': True,
         }
         serialized_projects.append(serialized_project)
 
