@@ -2958,6 +2958,12 @@ def validate_consensus_export(data_file):
 
     return None
 
+def safe_annotate(submission, seq, primer, organism, trans_table):
+    try:
+        return bool(submission.annotate_barcode(seq, primer, organism, trans_table))
+    except RuntimeError:
+        return False
+
 # Helper function
 def get_filtered_user_datafiles(request, filter_dict, output_name):
     if request.method == 'GET':
@@ -2974,6 +2980,10 @@ def get_filtered_user_datafiles(request, filter_dict, output_name):
         except User.DoesNotExist:
             return JsonResponse({'error': 'User not found'}, status=404)
 
+        user_elevated_access = user and hasattr(user, 'userprofile') and user.userprofile.elevated_access
+        if user_elevated_access:
+            submission = GenbankSubmission()
+
         # Get all DataFiles for the given user filtered by the provided filter_dict
         filtered_datafiles = DataFile.objects.filter(user=user, **filter_dict)
         data = [
@@ -2984,7 +2994,27 @@ def get_filtered_user_datafiles(request, filter_dict, output_name):
                 'created': datafile.created,
                 'updated': datafile.updated,
                 'is_public': datafile.is_public,
-                'can_export': not validate_consensus_export(datafile),
+                'can_export': user_elevated_access and not validate_consensus_export(datafile),
+                'rbcL_primer_valid': (
+                    user_elevated_access
+                    and not validate_consensus_export(datafile)
+                    and safe_annotate(submission, datafile.reads, "RBCL", "sample", 1)
+                ),
+                'invertebrate_primer_valid': (
+                    user_elevated_access
+                    and not validate_consensus_export(datafile)
+                    and safe_annotate(submission, datafile.reads, "COI", "sample", 5)
+                ),
+                'vertebrate_primer_valid': (
+                    user_elevated_access
+                    and not validate_consensus_export(datafile)
+                    and safe_annotate(submission, datafile.reads, "COI", "sample", 2)
+                ),
+                'echinoderm_primer_valid': (
+                    user_elevated_access
+                    and not validate_consensus_export(datafile)
+                    and safe_annotate(submission, datafile.reads, "COI", "sample", 9)
+                ),
                 'source': datafile.source,
                 'associated_abi': datafile.associated_abi.url if datafile.associated_abi else None,
                 'authors': [
@@ -3869,7 +3899,7 @@ def export_to_genbank(request):
     type_of_sample = data.get('typeOfSample')
     seq_type = type_of_sample.split(' ', 1)[0]
     if seq_type.upper() not in ["RBCL", "COI", "CO1"]:
-        return JsonResponse({'error': 'Unsupported primer'}, status=400)
+        return JsonResponse({'error': 'Unsupported sample type'}, status=400)
     trans_codes = {
         "rbcL": 1,
         "COI Invertebrates": 5,
