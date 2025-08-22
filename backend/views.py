@@ -2929,6 +2929,35 @@ def toggle_visibility(request):
 def toggle_sequence_repository(request):
     return toggle_datafile_boolean_field(request, "in_sequence_repository")
 
+def validate_consensus_export(data_file):
+    if data_file.read_type != 'C':
+        return "You can only export a consensus sequence"
+
+    if data_file.source != 'consensus':
+        return "You can only export a consensus sequence"
+
+    if not (data_file.forward_read and data_file.reverse_read):
+        return "Could not identify the forward and reverse reads"
+
+    for read in [data_file.forward_read, data_file.reverse_read]:
+        if not read.associated_abi:
+            return "Both reads must have trace files"
+
+        scores = get_quality_scores(read.associated_abi.name)
+        if not scores or is_low_quality(scores):
+            return "Both reads must not be low quality"
+
+        if not (read.left_trim or read.right_trim):
+            return "Both reads must be trimmed"
+
+        if read.source in ("sample", "reference"):
+            return "Neither read may be from sample or reference data"
+
+    if not (data_file.left_trim or data_file.right_trim):
+        return "Consensus must be trimmed"
+
+    return None
+
 # Helper function
 def get_filtered_user_datafiles(request, filter_dict, output_name):
     if request.method == 'GET':
@@ -2955,6 +2984,7 @@ def get_filtered_user_datafiles(request, filter_dict, output_name):
                 'created': datafile.created,
                 'updated': datafile.updated,
                 'is_public': datafile.is_public,
+                'can_export': not validate_consensus_export(datafile),
                 'source': datafile.source,
                 'associated_abi': datafile.associated_abi.url if datafile.associated_abi else None,
                 'authors': [
@@ -3955,28 +3985,9 @@ def export_to_genbank(request):
     if data_file.user != user:
         return JsonResponse({'error': 'You can only export a sequence you own'}, status=400)
 
-    if data_file.read_type != 'C':
-        return JsonResponse({'error': 'You can only export a consensus sequence'}, status=400)
-
-    if not (data_file.forward_read and data_file.reverse_read):
-        return JsonResponse({'error': 'Could not identify the forward and reverse reads'}, status=400)
-
-    for read in [data_file.forward_read, data_file.reverse_read]:
-        if not read.associated_abi:
-            return JsonResponse({'error': 'Both reads must have trace files'}, status=400)
-
-        scores = get_quality_scores(read.associated_abi.name)
-        if not scores or is_low_quality(scores):
-            return JsonResponse({'error': 'Both reads must not be low quality'}, status=400)
-
-        if not (read.left_trim or read.right_trim):
-            return JsonResponse({'error': 'Both reads must be trimmed'}, status=400)
-
-        if read.source == "sample" or read.source == "reference":
-            return JsonResponse({'error': 'Neither read may be from sample or reference data'}, status=400)
-
-    if not (data_file.left_trim or data_file.right_trim):
-         return JsonResponse({'error': 'Consensus must be trimmed'}, status=400)
+    error = validate_consensus_export(data_file)
+    if error:
+        return JsonResponse({'error': error}, status=400)
 
     consensus = data_file.reads
     if not consensus:
