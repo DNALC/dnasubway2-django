@@ -22,8 +22,8 @@ import string
 import tempfile
 import time
 #from django.shortcuts import render
-from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder
-from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job
+from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author
+from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP
 import gzip
 import shutil
 from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task  # Celery task
@@ -32,6 +32,8 @@ import base64
 from .models import Author, MuscleTrim
 from tapipy.tapis import Tapis
 from collections import defaultdict
+from datetime import datetime
+from .genbank_submit import GenbankRecord, GenbankSubmission
 
 PROTOCOL = getattr(settings, 'PROTOCOL') or "https://"
 
@@ -3455,6 +3457,13 @@ def basecall(request):
     data = parsed_data['data']
     user = request.user
 
+    if not user or not hasattr(user, 'userprofile'):
+        return JsonResponse({'error': 'User profile not found'}, status=400)
+    if not user.userprofile.verified:
+        return JsonResponse({'error': 'Email address is not verified'}, status=403)
+    if not user.userprofile.elevated_access:
+        return JsonResponse({'error': 'User is not allowed to basecall'}, status=403)
+
     active_job_exists = BasecallingJob.objects.filter(
         job__user=user
     ).exclude(job__status__in=['FINISHED', 'FAILED', 'STOPPED', 'CANCELLED', 'FAILED_BOOT']).exists()
@@ -3808,3 +3817,245 @@ def list_folders_with_connections(request):
             })
 
     return JsonResponse(data)
+
+def export_to_genbank(request):
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+    user = request.user
+
+    if not user or not hasattr(user, 'userprofile'):
+        return JsonResponse({'error': 'User profile not found'}, status=400)
+    if not user.userprofile.verified:
+        return JsonResponse({'error': 'Email address is not verified'}, status=403)
+    if not user.userprofile.elevated_access:
+        return JsonResponse({'error': 'User is not allowed to export to GenBank'}, status=403)
+
+    data = parsed_data['data']
+    sequence_id = data.get('file_id')
+    if not sequence_id:
+        return JsonResponse({'error': 'Invalid sequence id'}, status=400)
+
+    type_of_sample = data.get('typeOfSample')
+    seq_type = type_of_sample.split(' ', 1)[0]
+    if seq_type.upper() not in ["RBCL", "COI", "CO1"]:
+        return JsonResponse({'error': 'Unsupported primer'}, status=400)
+    trans_codes = {
+        "rbcL": 1,
+        "COI Invertebrates": 5,
+        "COI Vertebrates": 2,
+        "COI Echinoderm": 9,
+    }
+    trans_table = trans_codes.get(type_of_sample)
+    if not trans_table:
+        return JsonResponse({'error': 'No such translation table'}, status=400)
+
+    primers_available = ["rbcL", "COI - fish", "COI - mammals and insects", "COI - metazoans"]
+    primer_used = data.get('primerUsed')
+    if primer_used not in primers_available:
+        return JsonResponse({'error': 'No such primer available'}, status=400)
+
+    f_primer = primer_used
+    r_primer = primer_used
+
+    genus = data.get('genus')
+    if not genus:
+        return JsonResponse({'error': 'Genus is required'}, status=400)
+    species = data.get('species')
+    if not species:
+        return JsonResponse({'error': 'Species is required'}, status=400)
+    available_projects = ["Urban Barcode Project", "Barcode Long Island", "DNA Subway General Projects", "US Ants", "Barcode Suzhou", "Barcode Puerto Rico"]
+    project = data.get('project')
+    if not project or project not in available_projects:
+        return JsonResponse({'error': 'Not a valid project'}, status=400)
+    isolation_source = data.get('isolationSource')
+    if not isolation_source:
+        return JsonResponse({'error': 'Isolation source is required'}, status=400)
+    host = data.get('hostOrganism')
+    tax = data.get('identifiedBy')
+    if not tax:
+        return JsonResponse({'error': 'Identifier is required'}, status=400)
+    tax_email = data.get('identifierEmail')
+    if not tax_email:
+        return JsonResponse({'error': 'Identifier email is required'}, status=400)
+    date_collected = data.get('dateCollected')
+    collected_date = None
+    if date_collected:
+        try:
+            parsed_date = datetime.strptime(date_collected, "%Y-%m-%d")
+            date_collected = parsed_date.strftime("%d/%m/%Y")
+        except ValueError:
+            date_collected = None
+    else:
+        date_collected = None
+    if not date_collected:
+        return JsonResponse({'error': 'Invalid date'}, status=400)
+    country_code = data.get('country')
+    if not country_code:
+        return JsonResponse({'error': 'Country is required'}, status=400)
+
+    country = INSDC_COUNTRY_MAP.get(country_code, "")
+    if not country:
+        return JsonResponse({'error': 'Country is not in the approved list'}, status=400)
+
+    state = data.get('state')
+    if not state:
+        return JsonResponse({'error': 'State/Province is required'}, status=400)
+    city = data.get('city')
+    if not city:
+        return JsonResponse({'error': 'City is required'}, status=400)
+    site_desc = data.get('exactSite')
+    if not site_desc:
+        return JsonResponse({'error': 'Exact site is required'}, status=400)
+    latitude = data.get('latitude')
+    if not latitude:
+        return JsonResponse({'error': 'Latitude is required'}, status=400)
+    longitude = data.get('longitude')
+    if not longitude:
+        return JsonResponse({'error': 'Longitude is required'}, status=400)
+    sex = data.get('sexOfSpecimen')
+    institution_storing = data.get('institutionStoring')
+    notes = data.get('notes')
+    stage = data.get('lifeStageOfSpecimen')
+    if sex:
+        sex = sex.lower()
+    if stage:
+        stage = stage.lower()
+
+    if latitude:
+        match = re.match(r"^([-+]?\d+(?:\.\d+)?)\s*([NSns])$", latitude.strip())
+        if not match:
+            return JsonResponse({'error': 'Latitude must be a number followed by N or S'}, status=400)
+
+        num, direction = match.groups()
+        num = float(num)
+        if not (0 <= num <= 90):
+            return JsonResponse({'error': 'Latitude must be between 0 and 90'}, status=400)
+
+        latitude = f"{num}{direction.upper()}"
+
+    if longitude:
+        match = re.match(r"^([-+]?\d+(?:\.\d+)?)\s*([EWew])$", longitude.strip())
+        if not match:
+            return JsonResponse({'error': 'Longitude must be a number followed by E or W'}, status=400)
+
+        num, direction = match.groups()
+        num = float(num)
+        if not (0 <= num <= 180):
+            return JsonResponse({'error': 'Longitude must be between 0 and 180'}, status=400)
+
+        longitude = f"{num}{direction.upper()}"
+    authors = data.get('authors', [])
+
+    try:
+        data_file = DataFile.objects.get(id=sequence_id)
+    except DataFile.DoesNotExist:
+        return JsonResponse({'error': 'No such sequence'}, status=400)
+
+    if data_file.user != user:
+        return JsonResponse({'error': 'You can only export a sequence you own'}, status=400)
+
+    if data_file.read_type != 'C':
+        return JsonResponse({'error': 'You can only export a consensus sequence'}, status=400)
+
+    if not (data_file.forward_read and data_file.reverse_read):
+        return JsonResponse({'error': 'Could not identify the forward and reverse reads'}, status=400)
+
+    for read in [data_file.forward_read, data_file.reverse_read]:
+        if not read.associated_abi:
+            return JsonResponse({'error': 'Both reads must have trace files'}, status=400)
+
+        scores = get_quality_scores(read.associated_abi.name)
+        if not scores or is_low_quality(scores):
+            return JsonResponse({'error': 'Both reads must not be low quality'}, status=400)
+
+        if not (read.left_trim or read.right_trim):
+            return JsonResponse({'error': 'Both reads must be trimmed'}, status=400)
+
+        if read.source == "sample" or read.source == "reference":
+            return JsonResponse({'error': 'Neither read may be from sample or reference data'}, status=400)
+
+    if not (data_file.left_trim or data_file.right_trim):
+         return JsonResponse({'error': 'Consensus must be trimmed'}, status=400)
+
+    consensus = data_file.reads
+    if not consensus:
+        return JsonResponse({'error': 'The consensus must have reads'}, status=400)
+
+    formed_data = {
+        "genus": genus,
+        "species": species,
+        "trans_table": trans_table,
+        "project": project,
+        "isolation_source": isolation_source,
+        "host": host,
+        "tax": tax,
+        "date_collected": date_collected,
+        "country": country, "state": state, "city": city, "site_desc": site_desc,
+        "latitude": latitude, "longitude": longitude,
+        "sex": sex, "stage": stage,
+        "f_primer": primer_used, "r_primer": primer_used,
+    }
+
+    valid_authors = [a for a in authors if a.get("firstName") and a.get("lastName")]
+
+    if not valid_authors:
+        return JsonResponse({'error': 'At least one author with both first and last name is required'}, status=400)
+
+    for i, a in enumerate(valid_authors, start=1):
+        formed_data[f"author_first{i}"] = a["firstName"]
+        formed_data[f"author_last{i}"] = a["lastName"]
+
+    formed_data_json = json.dumps(formed_data)
+
+    specimen, created = Specimen.objects.update_or_create(
+        datafile=data_file,
+        defaults={
+            "codon": str(trans_table),
+            "institution_storing": institution_storing,
+            "notes": notes,
+            "primer_used": primer_used,
+            "genus": genus,
+            "species": species,
+            "isolation_source": isolation_source,
+            "sample_collected_from_host": True if host else False,
+            "host_organism_name": host,
+            "identifier_name": tax,
+            "identifier_email": tax_email,
+            "date_collected": parsed_date.date(),
+            "country": country,
+            "state_province": state,
+            "city": city,
+            "exact_site": site_desc,
+            "latitude": latitude,
+            "longitude": longitude,
+            "sex": sex,
+            "life_stage": stage,
+        }
+    )
+
+    Author.objects.filter(datafile=data_file).delete()
+
+    for a in valid_authors:
+        Author.objects.create(
+            datafile=data_file,
+            specimen=specimen,
+            first_name=a["firstName"],
+            last_name=a["lastName"],
+            affiliation=a.get("affiliation", "")
+        )
+
+    rec = GenbankRecord(
+        email=user.email,
+        sequence_id=sequence_id,
+        specimen_id=f"DNAS-{specimen.id:X}-{base10_to_base36(int(sequence_id))}",
+        seq_type=seq_type,
+        consensus=consensus,
+        data=formed_data_json,
+    )
+
+    submission = GenbankSubmission()
+    result = submission.run(rec)
+    if result["status"] != "success":
+        return JsonResponse({'error': result.get("message", "GenBank submission failed")}, status=400)
+    return JsonResponse({'success': "GenBank submission succeeded"})

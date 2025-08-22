@@ -76,6 +76,7 @@ urlpatterns = [
     path("backend/upload_user_nanopore_file", upload_user_nanopore_file, name='upload_user_nanopore_file'),
     path("backend/upload_pod5", upload_pod5, name='upload_pod5'),
     path("backend/repository", list_folders_with_connections, name='repository'),
+    path("backend/export_genbank", export_to_genbank, name='genbank_export'),
 ]
 
 
