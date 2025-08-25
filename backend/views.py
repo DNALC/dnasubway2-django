@@ -715,6 +715,7 @@ def create_project(request):
     project_type = data.get('project_type', 'PHY')
     sequencing_type = data.get('sequencing_type', 'sanger')
     barcode_type = data.get('barcode_type', 'Other')
+    read_type = data.get('read_type', 'single')
 
     # Check if project_type is valid
     if project_type not in dict(Project.PROJECT_TYPES).keys():
@@ -723,6 +724,9 @@ def create_project(request):
     # Check if sequencing_type is valid
     if sequencing_type not in dict(Project.SEQUENCING_TYPES).keys():
         return JsonResponse({'error': 'Invalid sequencing_type'}, status=400)
+
+    if read_type not in dict(Project.READ_TYPES).keys():
+        return JsonResponse({'error': 'Invalid read_type'}, status=400)
 
     # Check if sequencing_type is valid
     if barcode_type not in dict(Project.BARCODE_TYPES).keys():
@@ -742,7 +746,7 @@ def create_project(request):
 
     # Create the project
     new_project = Project(user=request.user, title=title, description=description,
-                      project_type=project_type, sequencing_type=sequencing_type, barcode_type=barcode_type)
+                      project_type=project_type, sequencing_type=sequencing_type, barcode_type=barcode_type, read_type=read_type)
     new_project.save()
 
     return JsonResponse({'success': 'Project created successfully', 'redirect': '/pages/starter?pid=' + str(new_project.id)})
@@ -1064,6 +1068,7 @@ def project_info(request):
         'title': project.title,
         'description': project.description,
         'sequencing_type': project.sequencing_type,
+        'read_type': project.read_type,
         'project_type': project.project_type,
         'barcode_type': project.barcode_type,
         'created_date': project.created.strftime('%Y-%m-%d'),  # Format date as YYYY-MM-DD

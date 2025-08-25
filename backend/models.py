@@ -192,6 +192,11 @@ class Project(models.Model):
         ('Other', 'Other')
     ]
     barcode_type = models.CharField(max_length=8, choices=BARCODE_TYPES, default='Other')
+    READ_TYPES = [
+        ('single', 'Single-End Reads'),
+        ('paired', 'Paired-End Reads'),
+    ]
+    read_type = models.CharField(max_length=8, choices=READ_TYPES, default='single')
     public = models.BooleanField(default=False)
     deleted = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
