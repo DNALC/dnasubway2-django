@@ -4105,3 +4105,23 @@ def export_to_genbank(request):
     if result["status"] != "success":
         return JsonResponse({'error': result.get("message", "GenBank submission failed")}, status=400)
     return JsonResponse({'success': "GenBank submission succeeded"})
+
+def user_id(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'User is not authenticated'}, status=401)
+
+    username = request.GET.get('username')
+    email = request.GET.get('email')
+    if username and email:
+        user = User.objects.filter(username=username, email=email).first()
+    elif username:
+        user = User.objects.filter(username=username).first()
+    elif email:
+        user = User.objects.filter(email=email).first()
+    else:
+        return JsonResponse({'error': 'username or email parameter is required'}, status=400)
+
+    if not user:
+        return JsonResponse({'error': 'No such user'}, status=404)
+
+    return JsonResponse({'uid': user.id})
