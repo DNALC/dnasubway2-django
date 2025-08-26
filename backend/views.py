@@ -836,7 +836,7 @@ def project_info(request):
             or (data_file.sample_data.id if data_file.sample_data else None)
             or (data_file.nanopore_seq_id.id if data_file.nanopore_seq_id else None)
         )
-        consensus_data = ConsensusData.objects.filter(consensus=project_data_file.data_file).last()
+        consensus_data = ConsensusData.objects.filter(consensus=project_data_file.data_file).last() if project_data_file.data_file.source != "saved" else ConsensusData.objects.filter(consensus=project_data_file.data_file.source_file_id).last()
         quality_scores = get_quality_scores(project_data_file.data_file.associated_abi.name) if data_file.associated_abi else None
         serialized_sequence = {
             'paired_id': None,
