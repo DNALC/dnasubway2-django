@@ -2544,10 +2544,10 @@ def upload_sanger_files(request):
                 abi_file_path = default_storage.save(f"abi_files/{abi_file_name}", abi_content)
                 file_url = PROTOCOL + request.get_host() + "/backend/abi_files/" + abi_file_name
                 message, sequence, trace_exists, record, _ = parse_reads(file_url)
-                name = record.name
                 if message:
                     data_file.delete()
                     continue
+                name = record.name
                 # Create a new DataFile for each ABI file
                 data_file.reads = sequence
                 data_file.associated_abi.name = abi_file_path
