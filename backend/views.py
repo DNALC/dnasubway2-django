@@ -2489,6 +2489,7 @@ def upload_sanger_files(request):
 
     temp_dir = create_temp_directory()
     warnings = []
+    processed_count = 0
 
     # Organize files by barcode folder
     for relative_path, file_data in files.items():
@@ -2526,6 +2527,7 @@ def upload_sanger_files(request):
                     data_file.associated_fasta.name = fasta_file_path
                     data_file.save()
                     ProjectDataFile.objects.create(project=project, data_file=data_file)
+                    processed_count += 1
             else:  # Handle as binary
                 name = cleanSequenceName(relative_path)
                 if ProjectDataFile.objects.filter(project=project, data_file__name=name):
@@ -2545,6 +2547,7 @@ def upload_sanger_files(request):
                 file_url = PROTOCOL + request.get_host() + "/backend/abi_files/" + abi_file_name
                 message, sequence, trace_exists, record, _ = parse_reads(file_url)
                 if message:
+                    warnings.append(f"Failed to process file as sequence file: {relative_path}: {e}")
                     data_file.delete()
                     continue
                 name = record.name
@@ -2561,8 +2564,12 @@ def upload_sanger_files(request):
 
                 # Link the new DataFile to the project
                 ProjectDataFile.objects.create(project=project, data_file=data_file)
+                processed_count += 1
         except Exception as e:
             warnings.append(f"Failed to process file {relative_path}: {e}")
+
+    if processed_count == 0:
+        return JsonResponse({'error': "No valid files were processed.", 'warnings': warnings}, status=400)
 
     # Return a response indicating the process result
     return JsonResponse({'success': 'Sequences processed successfully.', 'warnings': warnings})
