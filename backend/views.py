@@ -2510,7 +2510,7 @@ def upload_sanger_files(request):
                 for seq in sequences:
                     sequence_str = str(seq.seq)
                     name = seq.id
-                    if ProjectDataFile.objects.filter(project=project, data_file__name=name):
+                    if ProjectDataFile.objects.filter(project=project, data_file__name=name).exists():
                         warnings.append(f"File {name} already exists for project.")
                         continue
                     data_file = DataFile.objects.create(
@@ -2530,7 +2530,7 @@ def upload_sanger_files(request):
                     processed_count += 1
             else:  # Handle as binary
                 name = cleanSequenceName(relative_path)
-                if ProjectDataFile.objects.filter(project=project, data_file__name=name):
+                if ProjectDataFile.objects.filter(project=project, data_file__name=name).exists():
                     warnings.append(f"File {name} already exists for project.")
                     continue
                 data_file = DataFile.objects.create(
@@ -2547,7 +2547,7 @@ def upload_sanger_files(request):
                 file_url = PROTOCOL + request.get_host() + "/backend/abi_files/" + abi_file_name
                 message, sequence, trace_exists, record, _ = parse_reads(file_url)
                 if message:
-                    warnings.append(f"Failed to process file as sequence file: {relative_path}: {e}")
+                    warnings.append(f"Failed to process file as sequence file: {relative_path}: {message}")
                     data_file.delete()
                     continue
                 name = record.name
