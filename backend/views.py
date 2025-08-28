@@ -2507,6 +2507,8 @@ def upload_sanger_files(request):
             if is_text_file(decoded_bytes):  # Handle as text
                 decoded_str = decoded_bytes.decode('utf-8')
                 sequences = SeqIO.parse(io.StringIO(decoded_str), "fasta")
+                if not sequences:
+                    warnings.append(f"File {relative_path} could not be read as FASTA file.")
                 for seq in sequences:
                     sequence_str = str(seq.seq)
                     name = seq.id
