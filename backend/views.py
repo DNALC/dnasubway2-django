@@ -22,8 +22,8 @@ import string
 import tempfile
 import time
 #from django.shortcuts import render
-from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author
-from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP
+from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile
+from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format
 import gzip
 import shutil
 from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task  # Celery task
@@ -1053,6 +1053,13 @@ def project_info(request):
                    'right_trim': muscle_data.trim.right_trim if hasattr(muscle_data, 'trim') else 0,
             } if hasattr(muscle_data, 'consensus') else None
 
+    metabarcoding = {}
+    if project.project_type == "UB":
+        project_metabarcoding_files = ProjectMetabarcodingFile.objects.filter(project=project).select_related('metabarcoding_file').order_by('metabarcoding_file__name')
+        for project_metabarcoding_file in project_metabarcoding_files:
+            metabarcoding_file = project_metabarcoding_file.metabarcoding_file
+            metabarcoding[metabarcoding_file.id] = metabarcoding_file.name
+
     project_data = {
         'id': project.id,
         'muscle_job': has_muscle_job,
@@ -1076,6 +1083,7 @@ def project_info(request):
         'uid': project.user.id,
         'sequences': serialized_sequences,
         'nanopore_sequences': nanopore,
+        'metabarcoding': metabarcoding,
     }
     return JsonResponse({'success': 'Project retrieved', 'project': project_data})
 
@@ -2512,6 +2520,9 @@ def upload_sanger_files(request):
                 for seq in sequences:
                     sequence_str = str(seq.seq)
                     name = seq.id
+                    if len(sequence_str) > 10000:
+                        warnings.append(f"Sequence {name} is too long, no sequence may be uploaded if it is more than 10kb.")
+                        continue
                     if ProjectDataFile.objects.filter(project=project, data_file__name=name).exists():
                         warnings.append(f"File {name} already exists for project.")
                         continue
@@ -2550,6 +2561,10 @@ def upload_sanger_files(request):
                 message, sequence, trace_exists, record, _ = parse_reads(file_url)
                 if message:
                     warnings.append(f"Failed to process file as sequence file: {relative_path}: {message}")
+                    data_file.delete()
+                    continue
+                if len(sequence) > 10000:
+                    warnings.append(f"Sequence {name} is too long, no sequence may be uploaded if it is more than 10kb.")
                     data_file.delete()
                     continue
                 name = record.name
@@ -2801,6 +2816,9 @@ def upload_fasta_content(request):
     for seq_record in sequences:
         name = seq_record.id
         reads = str(seq_record.seq)
+        if len(reads) > 10000:
+            warnings.append(f"Sequence {name} is too long, no sequence may be uploaded if it is more than 10kb.")
+            continue
 
         # Check if a data file with this name already exists for the project
         data_file_exists = ProjectDataFile.objects.filter(project=project, data_file__name=name)
@@ -2830,6 +2848,9 @@ def upload_fasta_content(request):
             data_file=data_file
         )
         sequences_added = True
+
+    if not sequences_added:
+        return JsonResponse({'error': "No valid files were processed.", 'warnings': warnings}, status=400)
 
     return JsonResponse({"status": "success", "warnings": warnings}, status=200)
 
@@ -3698,6 +3719,113 @@ def upload_pod5(request):
         podfile_instance.file.save(podfile_filename, uploaded_file, save=True)
 
         return JsonResponse({"id": podfile_instance.id})
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+def upload_metabarcoding(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "POST method required"}, status=405)
+
+    user = request.user
+    if not user.is_authenticated:
+        return JsonResponse({"error": "Authentication required"}, status=401)
+
+    if 'file' not in request.FILES:
+        return JsonResponse({"error": "No file uploaded"}, status=400)
+
+    pid = request.POST.get("pid")
+    if not pid:
+        return JsonResponse({"error": "Project ID required"}, status=400)
+
+    try:
+        project = Project.objects.get(id=pid)
+    except Project.DoesNotExist:
+        return JsonResponse({"error": "Project not found"}, status=404)
+
+    uploaded_file = request.FILES['file']
+
+    if not uploaded_file.name.endswith(".fastq.gz"):
+        return JsonResponse({"error": "File must have .fastq.gz extension"}, status=400)
+
+    filename = uploaded_file.name
+    FILENAME_REGEX = re.compile(rf'^[A-Za-z0-9\.-]+_[^_]+_L[0-9]{{3}}_R{"[12]" if project.read_type == "paired" else "1"}_001\.fastq\.gz$')
+    if not FILENAME_REGEX.match(filename):
+        return JsonResponse({"error": "Invalid filename format."})
+
+    # Validate contents
+    valid, error_msg = validate_fastq_gz(uploaded_file)
+    if not valid:
+        return JsonResponse({"error": error_msg}, status=400)
+
+    # Check if a file with the same name already exists for this project
+    if ProjectMetabarcodingFile.objects.filter(
+        project=project, metabarcoding_file__name=uploaded_file.name
+    ).exists():
+        return JsonResponse({"error": f"A file named '{uploaded_file.name}' already exists for this project."}, status=400)
+
+    try:
+        # Create file record
+        metabarcoding_file = MetabarcodingFile.objects.create(
+            user=user,
+            name=uploaded_file.name,
+        )
+        metabarcoding_file.file.save(f"{metabarcoding_file.id}.fastq.gz", uploaded_file, save=True)
+
+        # Link to project
+        ProjectMetabarcodingFile.objects.create(
+            project=project,
+            metabarcoding_file=metabarcoding_file
+        )
+
+        return JsonResponse({"id": metabarcoding_file.id})
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+def upload_metadata(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "POST method required"}, status=405)
+
+    user = request.user
+    if not user.is_authenticated:
+        return JsonResponse({"error": "Authentication required"}, status=401)
+
+    if 'file' not in request.FILES:
+        return JsonResponse({"error": "No file uploaded"}, status=400)
+
+    pid = request.POST.get("pid")
+    if not pid:
+        return JsonResponse({"error": "Project ID required"}, status=400)
+
+    try:
+        project = Project.objects.get(id=pid)
+    except Project.DoesNotExist:
+        return JsonResponse({"error": "Project not found"}, status=404)
+
+    uploaded_file = request.FILES['file']
+
+    if not uploaded_file.name.endswith(".tsv") and not uploaded_file.name.endswith(".txt"):
+        return JsonResponse({"error": "File must have .tsv or .txt extension"}, status=400)
+
+    # Validate contents
+    valid, error_msg = validate_qiime2_metadata_format(uploaded_file)
+    if not valid:
+        return JsonResponse({"error": error_msg}, status=400)
+
+    try:
+        # Create file record
+        metadata_file = MetadataFile.objects.create(
+            user=user,
+            name=uploaded_file.name,
+        )
+        metadata_file.file.save(f"{metadata_file.id}.tsv", uploaded_file, save=True)
+
+        # Link to project
+        ProjectMetadataFile.objects.create(
+            project=project,
+            metadata_file=metadata_file
+        )
+
+        return JsonResponse({"id": metadata_file.id})
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 

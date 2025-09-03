@@ -211,6 +211,45 @@ class Project(models.Model):
     def __str__(self):
         return self.title
 
+class MetabarcodingFile(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    file = models.FileField(upload_to='metabarcoding_files/')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+class ProjectMetabarcodingFile(models.Model):
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="metabarcoding_files")
+    metabarcoding_file = models.ForeignKey(MetabarcodingFile, on_delete=models.CASCADE, related_name="project_links")
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("project", "metabarcoding_file")
+
+    def __str__(self):
+        return f"{self.project.name} → {self.metabarcoding_file.name}"
+
+class MetadataFile(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    file = models.FileField(upload_to="metadata_files/")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+class ProjectMetadataFile(models.Model):
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="metadata_files")
+    metadata_file = models.ForeignKey(MetadataFile, on_delete=models.CASCADE, related_name="project_links")
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("project", "metadata_file")
+
+    def __str__(self):
+        return f"{self.project.name} → {self.metadata_file.name}"
 
 class PodFile(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)

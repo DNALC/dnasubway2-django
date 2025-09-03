@@ -1,7 +1,9 @@
 from django.conf import settings
 from Bio import SeqIO
 from Bio.Seq import Seq
-from io import BytesIO, StringIO
+from io import BytesIO, StringIO, TextIOWrapper
+import csv
+import gzip
 import json
 from urllib.request import urlopen
 import os
@@ -273,6 +275,114 @@ INSDC_COUNTRY_MAP = {
     "ZM": "Zambia",
     "ZW": "Zimbabwe",
 }
+
+def validate_fastq_gz(file_obj):
+    """Validate that file is gzipped FASTQ using BioPython."""
+    try:
+        # Rewind file pointer
+        file_obj.seek(0)
+        with gzip.open(file_obj, "rt") as handle:
+            # Try parsing the first record only (don’t load the whole file)
+            first = next(SeqIO.parse(handle, "fastq"))
+            if not first.id:
+                return False, "Invalid FASTQ: missing sequence ID"
+        file_obj.seek(0)  # reset pointer after reading
+        return True, None
+    except Exception as e:
+        return False, f"Invalid FASTQ: {e}"
+
+RESERVED_ID_HEADERS_CI = {
+    "id", "sampleid", "sample id", "sample-id",
+    "featureid", "feature id", "feature-id",
+}
+RESERVED_ID_HEADERS_CS = {
+    "#SampleID", "#Sample ID", "#OTUID", "#OTU ID", "sample_name",
+}
+
+
+def validate_identifier(identifier):
+    """Validate sample/feature identifiers with stricter rules."""
+    if not identifier:
+        return False, "Identifier cannot be empty"
+
+    if identifier.startswith("#"):
+        # rows starting with '#' are comments (handled separately in parser)
+        return False, "Identifiers cannot start with '#'"
+
+    if len(identifier) > 36:
+        return False, f"Identifier '{identifier}' exceeds 36 characters"
+
+    for c in identifier:
+        if not (c.isalnum() or c in ".-"):
+            return False, f"Identifier '{identifier}' contains invalid character '{c}'"
+
+    return True, None
+
+
+def validate_qiime2_metadata_format(file_obj):
+    """
+    Validate metadata file against QIIME2 rules + stricter identifier checks.
+    Returns (True, None) if valid, (False, error_message) otherwise.
+    """
+    file_obj.seek(0)
+    text_stream = TextIOWrapper(file_obj, encoding="utf-8")
+    reader = csv.reader(text_stream, delimiter="\t")
+
+    try:
+        header = next(reader)
+    except StopIteration:
+        return False, "Metadata file is empty"
+
+    if not header:
+        return False, "Header row missing"
+
+    id_header = header[0]
+    if (
+        id_header.lower() not in RESERVED_ID_HEADERS_CI
+        and id_header not in RESERVED_ID_HEADERS_CS
+    ):
+        return False, f"Invalid ID column name '{id_header}'"
+
+    # Ensure other column names are valid
+    seen_cols = set()
+    for col in header[1:]:
+        if not col.strip():
+            return False, "Column names cannot be empty"
+
+        if col.lower() in (c.lower() for c in RESERVED_ID_HEADERS_CI | RESERVED_ID_HEADERS_CS):
+            return False, f"Column name '{col}' is reserved"
+
+        if col.lower() in seen_cols:
+            return False, f"Duplicate column name '{col}' not allowed"
+        seen_cols.add(col.lower())
+
+    ids_seen = set()
+    for row_idx, row in enumerate(reader, start=2):  # 2 = header row index + 1
+        # Skip completely empty rows
+        if not row or all(not cell.strip() for cell in row):
+            continue
+
+        # Skip comment rows (first cell starts with '#')
+        if row[0].startswith("#"):
+            continue
+
+        ident = row[0].strip()
+        if not ident:
+            return False, f"Row {row_idx}: missing identifier"
+
+        valid, error = validate_identifier(ident)
+        if not valid:
+            return False, f"Row {row_idx}: {error}"
+
+        if ident in ids_seen:
+            return False, f"Row {row_idx}: duplicate identifier '{ident}'"
+        ids_seen.add(ident)
+
+    if not ids_seen:
+        return False, "Metadata file must contain at least one identifier"
+
+    file_obj.seek(0)
+    return True, None
 
 def base10_to_base36(num):
     if num < 0:

@@ -78,6 +78,8 @@ urlpatterns = [
     path("backend/repository", list_folders_with_connections, name='repository'),
     path("backend/export_genbank", export_to_genbank, name='genbank_export'),
     path("backend/user_id", user_id, name='user_id'),
+    path("backend/upload_metabarcoding", upload_metabarcoding, name='upload_metabarcoding'),
+    path("backend/upload_metadata", upload_metadata, name='upload_metadata'),
 ]
 
 
