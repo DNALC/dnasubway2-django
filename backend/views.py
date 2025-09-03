@@ -2635,15 +2635,13 @@ def upload_bold_data(request):
         response = requests.get(api_url, headers=headers)
         if response.status_code != 200:
             return JsonResponse({'error': 'Could not get data from BOLD.'}, status=400)
-        try:
-            data = response.json()
-        except json.JSONDecodeError:
-            try:
-                data = [json.loads(line) for line in response.text.splitlines() if line.strip()]
-            except json.JSONDecodeError as e:
-                return JsonResponse({'error': f'Failed to parse response as JSON: {str(e)}'}, status=500)
     except requests.exceptions.RequestException as e:
         return JsonResponse({"error": f"API request failed: {str(e)}"}, status=500)
+
+    try:
+        data = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    except json.JSONDecodeError:
+        return JsonResponse({'error': f'Failed to parse response as JSON: {str(e)}'}, status=500)
 
     if isinstance(data, dict):  # If it's a single JSON object, wrap it in a list
         data = [data]
@@ -2654,11 +2652,14 @@ def upload_bold_data(request):
     sequences_found = False
     for item in data:
         if "processid" in item and "identification" in item and "nuc" in item:
-            sequences_found = True
             process_id = item["processid"]
             identification = item["identification"].split()[0]  # Take part before first whitespace
             reads = item["nuc"]
+            if len(reads) > 10000:
+                warnings.append(f"Sequence {name} is too long, no sequence may be uploaded if it is more than 10kb.")
+                continue
 
+            sequences_found = True
             name = (process_id + "|" + identification)[:255]
 
             data_file_exists = ProjectDataFile.objects.filter(project=project, data_file__name=name)
@@ -2692,7 +2693,7 @@ def upload_bold_data(request):
     if sequences_found:
         return JsonResponse({"status": "success", "warnings": warnings}, status=200)
 
-    return JsonResponse({"error": "Could not find sequences in BOLD"}, status=400)
+    return JsonResponse({"error": "Could not find sequences in BOLD or sequences too long"}, status=400)
 
 def upload_genbank_data(request):
     if request.method != 'POST':
@@ -2743,10 +2744,14 @@ def upload_genbank_data(request):
     except requests.exceptions.RequestException as e:
         return JsonResponse({"error": f"API request failed: {str(e)}"}, status=500)
 
+    sequences_added = False
     warnings = []
     for seq in sequences:
         name = seq["name"]
         reads = seq["reads"]
+        if len(reads) > 10000:
+            warnings.append(f"Sequence {name} is too long, no sequence may be uploaded if it is more than 10kb.")
+            continue
         accession_number = seq["accession"]
 
         data_file_exists = ProjectDataFile.objects.filter(project=project, data_file__name=name)
@@ -2776,6 +2781,11 @@ def upload_genbank_data(request):
             project=project,
             data_file=data_file
         )
+        sequences_added = True
+
+    if not sequences_added:
+        return JsonResponse({'error': "No valid files were processed.", 'warnings': warnings}, status=400)
+
     return JsonResponse({"status": "success", "warnings": warnings}, status=200)
 
 def upload_fasta_content(request):
