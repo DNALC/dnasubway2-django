@@ -1808,9 +1808,19 @@ def get_reference_sets(request):
         category = reference_set.category
         if category not in grouped_data:
             grouped_data[category] = []
+
+        fasta_path = reference_set.file.path if hasattr(reference_set.file, "path") else default_storage.path(reference_set.file.name)
+        seq_names = []
+        try:
+            if os.path.exists(fasta_path):
+                seq_names = [record.id for record in SeqIO.parse(fasta_path, "fasta")]
+        except Exception as e:
+            seq_names = []
+
         grouped_data[category].append({
             'id': reference_set.id,
-            'name': reference_set.name
+            'name': reference_set.name,
+            'files': seq_names
         })
 
     # Return the data as JSON
@@ -1831,9 +1841,27 @@ def get_sample_sets(request):
         category = sample_set.category
         if category not in grouped_data:
             grouped_data[category] = []
+
+        files_list = []
+        file_path = sample_set.file.path if hasattr(sample_set.file, "path") else default_storage.path(sample_set.file.name)
+
+        if sample_set.file_type == "fasta":
+            try:
+                if os.path.exists(file_path):
+                    files_list = [record.id for record in SeqIO.parse(file_path, "fasta")]
+            except Exception as e:
+                files_list = []
+        elif sample_set.file_type == "abi":
+            if os.path.isdir(file_path):
+                files_list = [
+                    os.path.splitext(f)[0]
+                    for f in os.listdir(file_path)
+                    if f.lower().endswith(".ab1")
+                ]
         grouped_data[category].append({
             'id': sample_set.id,
-            'name': sample_set.name
+            'name': sample_set.name,
+            'files': files_list
         })
 
     # Return the data as JSON
