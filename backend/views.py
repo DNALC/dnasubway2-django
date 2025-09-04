@@ -3788,7 +3788,7 @@ def upload_metabarcoding(request):
     filename = uploaded_file.name
     FILENAME_REGEX = re.compile(rf'^[A-Za-z0-9\.-]+_[^_]+_L[0-9]{{3}}_R{"[12]" if project.read_type == "paired" else "1"}_001\.fastq\.gz$')
     if not FILENAME_REGEX.match(filename):
-        return JsonResponse({"error": "Invalid filename format."})
+        return JsonResponse({"error": "Invalid filename format."}, status=400)
 
     # Validate contents
     valid, error_msg = validate_fastq_gz(uploaded_file)
