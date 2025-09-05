@@ -56,6 +56,7 @@ urlpatterns = [
     path('backend/trim_muscle_alignment', trim_muscle_alignment, name='trim_muscle_alignment'),
     path('backend/undo_muscle_trim', undo_muscle_trim, name='undo_muscle_trim'),
     path('backend/toggle_sequence_repository', toggle_sequence_repository, name='toggle_sequence_repository'),
+    path('backend/toggle_nanopore_file_sequence_repository', toggle_nanopore_file_sequence_repository, name='toggle_nanopore_file_sequence_repository'),
     path('backend/toggle_project_share_status', toggle_project_share_status, name='toggle_project_share_status'),
     path('backend/get_sequence_repository_datafiles', get_sequence_repository_datafiles, name='get_sequence_repository_datafiles'),
     path('backend/duplicate_datafiles', duplicate_datafiles, name='duplicate_datafiles'),

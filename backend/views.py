@@ -3002,6 +3002,38 @@ def toggle_visibility(request):
 def toggle_sequence_repository(request):
     return toggle_datafile_boolean_field(request, "in_sequence_repository")
 
+def toggle_nanopore_file_sequence_repository(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    user = request.user
+    nanoporesequence_id = data.get('nanopore_id')
+
+    if not nanoporesequence_id:
+        return JsonResponse({'error': 'nanopore_id is required'}, status=400)
+
+    try:
+        nanopore_sequence = NanoporeSequence.objects.get(id=nanoporesequence_id)
+    except NanoporeSequence.DoesNotExist:
+        return JsonResponse({'error': 'NanoporeSequence not found'}, status=404)
+
+    # Toggle logic
+    obj, created = UserNanoporeSequence.objects.get_or_create(
+        user=user,
+        nanopore_sequence=nanopore_sequence
+    )
+
+    if not created:
+        # Already exists → delete it
+        obj.delete()
+        action = 'removed'
+    else:
+        action = 'added'
+
+    return JsonResponse({'status': 'success', 'action': action, 'nanopore_id': nanoporesequence_id})
+
 def validate_consensus_export(data_file):
     if data_file.read_type != 'C':
         return "You can only export a consensus sequence"
