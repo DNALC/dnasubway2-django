@@ -3762,6 +3762,7 @@ def upload_user_nanopore_file(request):
         return JsonResponse({'error': 'seq_ids must be a list or a string'}, status=400)
 
     responses = []
+    overall_status = "error"
     for seq_id in nanoporesequence_ids:
         try:
             nanopore_sequence = NanoporeSequence.objects.get(id=seq_id)
@@ -3774,6 +3775,7 @@ def upload_user_nanopore_file(request):
                 'seq_id': seq_id,
                 'status': 'success',
             })
+            overall_status = "success"
         except NanoporeSequence.DoesNotExist:
             responses.append({
                 'seq_id': seq_id,
@@ -3787,6 +3789,8 @@ def upload_user_nanopore_file(request):
                 'error': str(e)
             })
 
+    if overall_status == "error":
+        return JsonResponse({'results': responses, 'error': 'All files failed to upload', 'status': 'error'}, status=400})
     return JsonResponse({'results': responses, 'status': 'success'}, status=200)
 
 def upload_pod5(request):
