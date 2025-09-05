@@ -3790,7 +3790,7 @@ def upload_user_nanopore_file(request):
             })
 
     if overall_status == "error":
-        return JsonResponse({'results': responses, 'error': 'All files failed to upload', 'status': 'error'}, status=400})
+        return JsonResponse({'results': responses, 'error': 'All files failed to upload', 'status': 'error'}, status=400)
     return JsonResponse({'results': responses, 'status': 'success'}, status=200)
 
 def upload_pod5(request):
