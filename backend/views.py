@@ -3008,7 +3008,7 @@ def toggle_sequence_repository(request):
     return toggle_datafile_boolean_field(request, "in_sequence_repository")
 
 def toggle_nanopore_file_sequence_repository(request):
-    parsed_data = parse_user_project_data(request)
+    parsed_data = parse_user_data(request)
     if 'error' in parsed_data:
         return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
 
