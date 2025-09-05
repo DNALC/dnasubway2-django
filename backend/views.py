@@ -3563,22 +3563,47 @@ def basecall_jobs(request):
     if not request.user or not request.user.is_authenticated:
         return JsonResponse({'error': 'Authentication required'}, status=401)
 
+    # Get all BasecallingJobs for the user
     jobs = (
         BasecallingJob.objects
         .select_related('job')
         .filter(job__user=request.user)
-        .order_by('-created_at')  # newest first
+        .order_by('-created_at')
     )
 
-    data = [
-        {
+    # Get all output_names
+    output_names = [job.output_name for job in jobs]
+
+    # Prefetch folders for UserNanoporeSequence linked to these output_names
+    folders_qs = NanoporeSequenceFolder.objects.select_related('datafolder')
+
+    sequences_qs = UserNanoporeSequence.objects.prefetch_related(
+        Prefetch('nanoporesequencefolder_set', queryset=folders_qs)
+    ).filter(
+        nanoporesequencefolder__datafolder__name__in=output_names
+    ).distinct()
+
+    # Build mapping: output_name -> list of sequence IDs
+    seq_map = {}
+    for us in sequences_qs:
+        # find folders that match output_names
+        for folder in us.nanoporesequencefolder_set.all():
+            folder_name = folder.datafolder.name
+            if folder_name in output_names:
+                seq_map.setdefault(folder_name, []).append(us.nanopore_sequence.id)
+
+    # Build response data
+    data = []
+    for job in jobs:
+        sequence_ids = seq_map.get(job.output_name, [])
+        data.append({
             'created_at': job.created_at.strftime("%Y-%m-%d"),
             'output_name': job.output_name,
             'status': job.job.status,
-            'id': job.id
-        }
-        for job in jobs
-    ]
+            'id': job.id,
+            'sequence_count': len(sequence_ids),
+            'sequence_ids': sequence_ids
+        })
 
     return JsonResponse({'basecalling_jobs': data}, status=200)
 
@@ -3650,46 +3675,72 @@ def basecall(request):
         'warnings': warnings,
     })
 
-
 def usernanoporesequences(request):
-    if request.method == 'GET':
-        # Get user_id from query parameters
-        user_id = request.GET.get('user_id')
-        if not user_id:
-            user_id = request.user.id if request.user and request.user else None
-        if not user_id:
-            return JsonResponse({'error': 'Missing user'}, status=400)
+    if request.method != 'GET':
+        return JsonResponse({'error': 'Invalid request method'}, status=400)
 
-        try:
-            # Fetch the user object based on the provided user_id
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return JsonResponse({'error': 'User not found'}, status=404)
+    # Get user_id from query params or current user
+    user_id = request.GET.get('user_id') or (request.user.id if request.user and request.user.is_authenticated else None)
+    if not user_id:
+        return JsonResponse({'error': 'Missing user'}, status=400)
 
-        # Query all UserNanoporeSequence for this user and select related NanoporeSequence
-        user_seqs = UserNanoporeSequence.objects.filter(user=user).select_related('nanopore_sequence')
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return JsonResponse({'error': 'User not found'}, status=404)
 
-        grouped = defaultdict(list)
-        for us in user_seqs:
-            seq = us.nanopore_sequence
-            name = seq.name.strip()
-            if '-' in name:
-                prefix = name.rsplit('-', 1)[0]
-            else:
-                prefix = "Ungrouped sequences"
-            # Extract prefix before first dash, or whole name if no dash
-            grouped[prefix].append({
-                'id': seq.id,
-                'name': seq.name,
+    # All output_names from BasecallingJob for this user
+    output_names = BasecallingJob.objects.filter(job__user=user).values_list("output_name", flat=True)
+
+    # Prefetch all folders for this user's sequences
+    folders_qs = NanoporeSequenceFolder.objects.select_related('datafolder')
+
+    # Basecalled sequences: linked to a folder with name in output_names
+    basecalled_qs = UserNanoporeSequence.objects.filter(
+        user=user,
+        nanoporesequencefolder__datafolder__name__in=output_names
+    ).select_related('nanopore_sequence').prefetch_related(
+        Prefetch('nanoporesequencefolder_set', queryset=folders_qs)
+    ).distinct()
+
+    basecalled = defaultdict(list)
+    for us in basecalled_qs:
+        folder = next((f for f in us.nanoporesequencefolder_set.all() if f.datafolder.name in output_names), None)
+        if folder:
+            df_name = folder.datafolder.name
+            basecalled[df_name].append({
+                "id": us.nanopore_sequence.id,
+                "name": us.nanopore_sequence.name,
             })
 
-        # Convert defaultdict to normal dict for JSON serialization
-        grouped_dict = dict(grouped)
+    # Saved sequences: sequences not basecalled
+    saved_qs = UserNanoporeSequence.objects.filter(user=user).exclude(
+        id__in=basecalled_qs.values_list('id', flat=True)
+    ).select_related('nanopore_sequence').prefetch_related(
+        Prefetch('nanoporesequencefolder_set', queryset=folders_qs)
+    ).distinct()
 
-        return JsonResponse({'nanopore_sequences': grouped_dict}, status=200)
+    saved = defaultdict(list)
+    for us in saved_qs:
+        if us.nanoporesequencefolder_set.exists():
+            # group by folder name (take all folders)
+            for folder in us.nanoporesequencefolder_set.all():
+                df_name = folder.datafolder.name
+                saved[df_name].append({
+                    "id": us.nanopore_sequence.id,
+                    "name": us.nanopore_sequence.name,
+                })
+        else:
+            # sequences not in any folder
+            saved["Ungrouped sequences"].append({
+                "id": us.nanopore_sequence.id,
+                "name": us.nanopore_sequence.name,
+            })
 
-    return JsonResponse({'error': 'Invalid request method'}, status=400)
-
+    return JsonResponse({
+        "basecalled": dict(basecalled),
+        "saved": dict(saved),
+    }, status=200)
 
 def upload_user_nanopore_file(request):
     parsed_data = parse_user_project_data(request)
