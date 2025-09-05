@@ -941,8 +941,13 @@ def project_info(request):
         # Retrieve related MedakaResult and MedakaJob (if they exist)
         medaka_result = MedakaResult.objects.filter(project_nanopore_sequence=pns).first()
         medaka_jobs = getattr(nanopore_sequence, 'related_medaka_jobs', [])
+        in_repository = UserNanoporeSequence.objects.filter(
+          user=request.user,
+          nanopore_sequence=nanopore_sequence
+        ).exists()
         nanopore.append({
             'nanopore_sequence_id': nanopore_sequence.id,
+            'in_sequence_repository': in_repository,
             'sample_set_name': sample_set.name if sample_set else None,
             'sample_set': True if sample_set else False,
             'name': nanopore_sequence.name,
