@@ -3024,17 +3024,29 @@ def toggle_nanopore_file_sequence_repository(request):
     except NanoporeSequence.DoesNotExist:
         return JsonResponse({'error': 'NanoporeSequence not found'}, status=404)
 
-    # Toggle logic
-    obj, created = UserNanoporeSequence.objects.get_or_create(
-        user=user,
-        nanopore_sequence=nanopore_sequence
-    )
-
-    if not created:
-        # Already exists → delete it
+    try:
+        obj = UserNanoporeSequence.objects.get(
+            user=user,
+            nanopore_sequence=nanopore_sequence
+        )
         obj.delete()
         action = 'removed'
-    else:
+    except UserNanoporeSequence.DoesNotExist:
+        exists_same_name = UserNanoporeSequence.objects.filter(
+            user=user,
+            nanopore_sequence__name=nanopore_sequence.name
+        ).exists()
+
+        if exists_same_name:
+            return JsonResponse({
+                'status': 'error',
+                'message': 'You already have a sequence with this name in your repository.'
+            }, status=400)
+
+        UserNanoporeSequence.objects.get_or_create(
+            user=user,
+            nanopore_sequence=nanopore_sequence
+        )
         action = 'added'
 
     return JsonResponse({'status': 'success', 'action': action, 'nanopore_id': nanoporesequence_id})
