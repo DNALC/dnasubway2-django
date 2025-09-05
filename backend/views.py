@@ -2992,7 +2992,10 @@ def toggle_datafile_boolean_field(request, field_name):
         return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
     data = parsed_data['data']
     datafile_id = data.get("datafile_id")
-    datafile = get_object_or_404(DataFile, id=datafile_id, user=request.user)
+    try:
+        datafile = DataFile.objects.get(id=datafile_id, user=request.user)
+    except DataFile.DoesNotExist:
+        return JsonResponse({'error': 'DataFile not found'}, status=404)
     
     # Toggle the attribute associated with the provided field_name
     setattr(datafile, field_name, not getattr(datafile, field_name))
@@ -3040,7 +3043,7 @@ def toggle_nanopore_file_sequence_repository(request):
         if exists_same_name:
             return JsonResponse({
                 'status': 'error',
-                'message': 'You already have a sequence with this name in your repository.'
+                'error': 'You already have a sequence with this name in your repository.'
             }, status=400)
 
         UserNanoporeSequence.objects.get_or_create(
