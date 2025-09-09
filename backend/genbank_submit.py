@@ -566,9 +566,9 @@ class GenbankSubmission:
 
         try:
             root = ET.fromstring(content)
-            # Expect <response><code>PASS|FAIL|PASS_WITH_WARNINGS</code>...</response>
-            code_el = root.find(".//code")
-            code = code_el.text.strip() if code_el is not None and code_el.text else "UNKNOWN"
+            # Expect <response code="PASS|FAIL|PASS_WITH_WARNINGS">...</response>
+            response_el = root.find(".//response")
+            code = response_el.attrib.get("code", "UNKNOWN") if response_el is not None else "UNKNOWN"
         except Exception as e:
             msg = f"Failed to parse validation XML: {e}"
             print(msg)
@@ -582,11 +582,6 @@ class GenbankSubmission:
         elif code == "PASS_WITH_WARNINGS":
             print("PASSED WITH WARNINGS")
             self._change_status(record, "Passed With Warnings")
-            self._email_user(record)
-            return {"status": "success"}
-        elif code == "UNKNOWN":
-            print("UNKNOWN")
-            self._change_status(record, "Unknown")
             self._email_user(record)
             return {"status": "success"}
         elif code == "PASS":
