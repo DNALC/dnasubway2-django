@@ -3119,6 +3119,11 @@ def get_filtered_user_datafiles(request, filter_dict, output_name):
                 'created': datafile.created,
                 'updated': datafile.updated,
                 'is_public': datafile.is_public,
+                'specimen_id': (
+                    f"DNAS2-{datafile.specimen.id:X}-{base10_to_base36(datafile.id)}"
+                    if datafile.exported and datafile.specimen
+                    else None
+                ),
                 'can_export': user_elevated_access and not validate_consensus_export(datafile) and not datafile.exported,
                 'rbcL_primer_valid': (
                     user_elevated_access
