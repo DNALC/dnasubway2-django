@@ -367,6 +367,9 @@ class DataFile(models.Model):
     # Boolean indicating if the file is in the sequence repository
     in_sequence_repository = models.BooleanField(default=False)
 
+    # Boolean indicating if the file was exported to GenBank
+    exported = models.BooleanField(default=False)
+
     def __str__(self):
         return self.name
 

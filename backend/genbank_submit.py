@@ -584,6 +584,11 @@ class GenbankSubmission:
             self._change_status(record, "Passed With Warnings")
             self._email_user(record)
             return {"status": "success"}
+        elif code == "UNKNOWN":
+            print("UNKNOWN")
+            self._change_status(record, "Unknown")
+            self._email_user(record)
+            return {"status": "success"}
         elif code == "PASS":
             print("PASSED VALIDATION!")
             self._change_status(record, "Passed validation")

@@ -3119,7 +3119,7 @@ def get_filtered_user_datafiles(request, filter_dict, output_name):
                 'created': datafile.created,
                 'updated': datafile.updated,
                 'is_public': datafile.is_public,
-                'can_export': user_elevated_access and not validate_consensus_export(datafile),
+                'can_export': user_elevated_access and not validate_consensus_export(datafile) and not datafile.exported,
                 'rbcL_primer_valid': (
                     user_elevated_access
                     and not validate_consensus_export(datafile)
@@ -4373,10 +4373,12 @@ def export_to_genbank(request):
             affiliation=a.get("affiliation", "")
         )
 
+    specimen_id = f"DNAS2-{specimen.id:X}-{base10_to_base36(int(sequence_id))}"
+
     rec = GenbankRecord(
         email=user.email,
         sequence_id=sequence_id,
-        specimen_id=f"DNAS-{specimen.id:X}-{base10_to_base36(int(sequence_id))}",
+        specimen_id=specimen_id,
         seq_type=seq_type,
         consensus=consensus,
         data=formed_data_json,
@@ -4386,7 +4388,9 @@ def export_to_genbank(request):
     result = submission.run(rec)
     if result["status"] != "success":
         return JsonResponse({'error': result.get("message", "GenBank submission failed")}, status=400)
-    return JsonResponse({'success': "GenBank submission succeeded"})
+    data_file.exported = True
+    data_file.save()
+    return JsonResponse({'success': f"GenBank submission succeeded with specimen ID {specimen_id}"})
 
 def user_id(request):
     if not request.user.is_authenticated:
