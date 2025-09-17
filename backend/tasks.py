@@ -215,7 +215,7 @@ def run_blast_task(job_id, file_path, clade):
 
         # Construct the BLAST command as a list of arguments
         blastn_command = [
-            blastn_program, "-task", "blastn", "-num_threads", "4", "-max_target_seqs", "50",
+            blastn_program, "-task", "blastn", "-num_threads", "4", "-max_target_seqs", "50", "-max_hsps", "1",
             "-evalue", "1e-10", "-word_size", "11", "-reward", "2", "-penalty", "-3",
             "-show_gis", "-dust", "no", "-db", db, "-query", file_path, 
             "-outfmt", "6 saccver stitle length bitscore evalue mismatch sseq"
