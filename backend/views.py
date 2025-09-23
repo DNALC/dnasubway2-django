@@ -3110,7 +3110,7 @@ def get_filtered_user_datafiles(request, filter_dict, output_name):
             submission = GenbankSubmission()
 
         # Get all DataFiles for the given user filtered by the provided filter_dict
-        filtered_datafiles = DataFile.objects.filter(user=user, **filter_dict)
+        filtered_datafiles = DataFile.objects.filter(user=user, **filter_dict).order_by('name')
         data = [
             {
                 'datafile_id': datafile.id,
