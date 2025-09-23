@@ -81,6 +81,7 @@ urlpatterns = [
     path("backend/user_id", user_id, name='user_id'),
     path("backend/upload_metabarcoding", upload_metabarcoding, name='upload_metabarcoding'),
     path("backend/upload_metadata", upload_metadata, name='upload_metadata'),
+    path("backend/delete_metabarcoding", delete_metabarcoding_file, name='delete_metabarcoding'),
 ]
 
 

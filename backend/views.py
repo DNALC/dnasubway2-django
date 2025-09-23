@@ -3931,6 +3931,38 @@ def upload_metabarcoding(request):
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
+def delete_metabarcoding_file(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    file_id = data.get('metabarcoding_file_id')
+
+    if not file_id:
+        return JsonResponse({'error': 'metabarcoing_file_id is required'}, status=400)
+
+    # Get the project and data file
+    try:
+        metabarcoding_file = MetabarcodingFile.objects.get(id=file_id)
+    except MetabarcodingFile.DoesNotExist:
+        return JsonResponse({'error': 'Metabarcoding file not found'}, status=404)
+
+    project_metabarcoding_file = ProjectMetabarcodingFile.objects.filter(project=project, metabarcoding_file=metabarcoding_file).first()
+
+    # Verify the file belongs to the project
+    if not project_metabarcoding_file:
+        return JsonResponse({'error': 'Metabarcoding file does not belong to this project'}, status=403)
+
+    if ProjectMetabarcodingFile.objects.filter(metabarcoding_file=metabarcoding_file).count() < 2:
+        if metabarcoding_file.file:
+            os.remove(metabarcoding_file.file.name)
+        metabarcoding_file.delete()
+    project_metabarcoding_file.delete()
+    return JsonResponse({'success': 'Metabarcoding file removed successfully'})
+
+
 def upload_metadata(request):
     if request.method != "POST":
         return JsonResponse({"error": "POST method required"}, status=405)
