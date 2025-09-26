@@ -82,6 +82,7 @@ urlpatterns = [
     path("backend/upload_metabarcoding", upload_metabarcoding, name='upload_metabarcoding'),
     path("backend/upload_metadata", upload_metadata, name='upload_metadata'),
     path("backend/delete_metabarcoding", delete_metabarcoding_file, name='delete_metabarcoding'),
+    path("backend/demux", demux, name='demux'),
 ]
 
 

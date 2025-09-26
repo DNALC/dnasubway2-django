@@ -220,6 +220,28 @@ class MetabarcodingFile(models.Model):
     def __str__(self):
         return self.name
 
+class DemuxJobInputFile(models.Model):
+    job = models.ForeignKey("Job", on_delete=models.CASCADE, related_name="input_files")
+    file = models.ForeignKey(MetabarcodingFile, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return f"{self.file.name} for {self.job.uuid}"
+
+class DemuxJobDetail(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="demux_detail")
+    rand_samples = models.PositiveIntegerField(default=1000)
+    def __str__(self):
+        return f"Demux details for Job {self.job.uuid}"
+
+class DemuxResult(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="demux_result")
+    demux_qza = models.FileField(upload_to="demux_files/", blank=True, null=True)
+    demux_summary_qzv = models.FileField(upload_to="demux_files/", blank=True, null=True)
+    log_file = models.FileField(upload_to="demux_files/", blank=True, null=True)
+
+    def __str__(self):
+        return f"Results for Job {self.job.uuid}"
+
 class ProjectMetabarcodingFile(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="metabarcoding_files")
     metabarcoding_file = models.ForeignKey(MetabarcodingFile, on_delete=models.CASCADE, related_name="project_links")

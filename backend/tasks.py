@@ -944,3 +944,53 @@ def run_basecall_task(job_id, model, kit, output):
             "status": "error",
             "message": str(e)
         }
+
+@shared_task
+def submit_demux_job_task(job_id, rand_samples='1000'):
+    job = Job.objects.get(id=job_id)
+    project = job.project
+    user = job.user
+
+    # Prepare fileInputs
+    metabarcoding_files = ProjectMetabarcodingFile.objects.filter(project=project).select_related('metabarcoding_file')
+    fileInputs = []
+    for f in metabarcoding_files:
+        mf = f.metabarcoding_file
+        filename = mf.name
+        fileInputs.append({
+            "name": filename,
+            "sourceUrl": settings.REACT_URL + "backend/" + mf.file.name,
+            "targetPath": filename
+        })
+
+    # Determine paired or single-end
+    paired_flag = '1' if getattr(project, 'read_type', 'single') == 'paired' else '0'
+
+    job_params = {
+        "name": "demux",
+        "appId": settings.QIIME2_DEMUX_APP_ID,
+        "appVersion": settings.QIIME2_DEMUX_APP_VERSION,
+        "fileInputs": fileInputs,
+        "parameterSet": {
+            "envVariables": [
+                {"key":"paired", "value": paired_flag},
+                {"key": "INPUT", "value": "./input-data/"},
+                {"key": "jobName", "value": "demux"},
+                {"key": "RANDSAMPLES", "value": str(rand_samples)}
+            ]
+        }
+    }
+    try:
+        get_service_token()
+        user_token = generate_user_token(user.username)
+        t = connect_to_tapis(user.username, user_token)
+        tapis_job_response = t.jobs.submitJob(**job_params)
+
+        # Update Django Job with real UUID and status
+        job.uuid = tapis_job_response.get('uuid')
+        job.status = tapis_job_response.get('status', 'PENDING')
+        job.save()
+
+    except Exception as e:
+        job.status = 'FAILED'
+        job.save()
