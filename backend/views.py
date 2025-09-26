@@ -4478,7 +4478,7 @@ def demux(request):
     job.save()
     DemuxJobDetail.objects.create(
         job=job,
-        rand_samples=rand_samples,
+        rand_samples=randSamples,
     )
-    submit_demux_job_task.delay(job.id, rand_samples)
+    submit_demux_job_task.delay(job.id, randSamples)
     return JsonResponse({'job_uuid': job.uuid, 'status': job.status})
