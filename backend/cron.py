@@ -151,6 +151,8 @@ def check_job(tapis, job_uuid, job_obj, admin_tapis):
         print("Job status:", current_status)
 
 def poll_active_jobs():
+    admin_token = generate_user_token("jacobs")
+    admin_tapis = connect_to_tapis("jacobs", admin_token)
     demux_jobs = (
         Job.objects
         .filter(appId=settings.QIIME2_DEMUX_APP_ID)
@@ -194,8 +196,6 @@ def poll_active_jobs():
     print("Got users") 
     print(usernames)
 
-    admin_token = generate_user_token("jacobs")
-    admin_tapis = connect_to_tapis("jacobs", admin_token)
 
     for username in usernames:
         print("Checking user " + username)
