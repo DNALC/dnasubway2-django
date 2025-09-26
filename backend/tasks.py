@@ -11,7 +11,7 @@ from ansi2html import Ansi2HTMLConverter
 from django.utils import timezone
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from .models import FastpJob, FastpResult, ProjectNanoporeSequence, PorechopResult, PorechopJob, MedakaJob, MedakaResult, DataFile, ProjectDataFile, BlastJob, BlastResult, Job, BlastData, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, JobPodFile, BasecallingJob
+from .models import FastpJob, FastpResult, ProjectNanoporeSequence, PorechopResult, PorechopJob, MedakaJob, MedakaResult, DataFile, ProjectDataFile, BlastJob, BlastResult, Job, BlastData, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, JobPodFile, BasecallingJob, ProjectMetabarcodingFile
 from .utils import get_service_token, generate_user_token, connect_to_tapis, ensure_instance_ready
 from django.conf import settings
 import tempfile
