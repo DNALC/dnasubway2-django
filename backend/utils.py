@@ -583,8 +583,8 @@ def list_all_files(tapis, job_uuid, output_path='/', limit=150):
 
 def get_file_content(tapis, job_uuid, file_path):
     # Use getJobOutputDownload() to retrieve file content
-    content = tapis.jobs.getJobOutputDownload(jobUuid=job_uuid, outputPath=file_path)
-    return content
+    resp = tapis.jobs.getJobOutputDownload(jobUuid=job_uuid, outputPath=file_path)
+    return resp.content
 
 
 def extract_sequences(fasta_content):
