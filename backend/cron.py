@@ -21,6 +21,64 @@ def get_job_status(tapis, job_uuid):
         print("Error retrieving job details:", e)
         return None
 
+def check_metabarcoding_job(tapis, job_uuid, job_obj, admin_tapis):
+    print("Checking metabarcoding job " + job_uuid)
+    status = get_job_status(tapis, job_uuid)
+    if not status:
+        return
+    current_status = status.get("status")
+    print("Current status: " + current_status)
+    user = job_obj.user
+    if current_status in ["FAILED", "STOPPED", "FINISHED", "CANCELLED"]:
+        # cleanup is optional for demux jobs – no pod files here
+        pass
+
+    if current_status == "FINISHED":
+        # List files from Tapis job archive
+        all_files = list_all_files(tapis, job_uuid)
+
+        qza_file = None
+        qzv_file = None
+
+        for file_path in all_files:
+            if file_path.endswith("imported-demux.qza"):
+                qza_file = file_path
+            elif file_path.endswith("imported-demux.qzv"):
+                qzv_file = file_path
+        if qza_file or qzv_file:
+            demux_result, _ = DemuxResult.objects.get_or_create(job=job_obj)
+
+            if qza_file:
+                print("GET " + qza_file)
+                file_content = get_file_content(tapis, job_uuid, qza_file)
+                demux_result.qza.save(
+                    f"{job_uuid}-imported-demux.qza",
+                    ContentFile(file_content),
+                    save=False,
+                )
+            if qzv_file:
+                print("GET " + qzv_file)
+                file_content = get_file_content(tapis, job_uuid, qzv_file)
+                demux_result.qzv.save(
+                    f"{job_uuid}-imported-demux.qzv",
+                    ContentFile(file_content),
+                    save=False,
+                )
+            demux_result.save()
+
+            # cleanup remote job dir
+            try:
+                admin_tapis.files.delete(
+                    systemId="js2_dnasubway2",
+                    path=f"scratch/{user.username}/job-{job_uuid}/",
+                )
+                print(f"Deleted /scratch/{user.username}/job-{job_uuid}/ from Tapis")
+            except Exception as e:
+                print(f"Failed to delete job files for {job_uuid}: {e}")
+    job_obj.status = current_status
+    job_obj.save(update_fields=["status"])
+    print("Metabarcoding job status:", current_status)
+
 def check_job(tapis, job_uuid, job_obj, admin_tapis):
     print("Checking job " + job_uuid)
     status = get_job_status(tapis, job_uuid)
@@ -93,6 +151,23 @@ def check_job(tapis, job_uuid, job_obj, admin_tapis):
         print("Job status:", current_status)
 
 def poll_active_jobs():
+    demux_jobs = (
+        Job.objects
+        .filter(appId=settings.QIIME2_DEMUX_APP_ID)
+        .exclude(status__in=['FINISHED', 'CANCELLED', 'FAILED', 'STOPPED', 'STARTING', 'FAILED_BOOT'])
+    )
+    if demux_jobs.exists():
+        usernames = set(j.user.username for j in demux_jobs)
+
+        for username in usernames:
+            print("Checking demux jobs for user " + username)
+            user_jobs = [j for j in demux_jobs if j.user.username == username]
+
+            user_token = generate_user_token(username)
+            tapis = connect_to_tapis(username, user_token)
+
+            for job in user_jobs:
+                check_metabarcoding_job(tapis, job.uuid, job, admin_tapis)
     # 1. Query active jobs
     jobs = (
         BasecallingJob.objects
