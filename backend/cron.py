@@ -151,6 +151,7 @@ def check_job(tapis, job_uuid, job_obj, admin_tapis):
         print("Job status:", current_status)
 
 def poll_active_jobs():
+    get_service_token()
     admin_token = generate_user_token("jacobs")
     admin_tapis = connect_to_tapis("jacobs", admin_token)
     demux_jobs = (
@@ -186,7 +187,6 @@ def poll_active_jobs():
         return
 
     # 3. Get service token
-    get_service_token()
     print("Got service token") 
     print("Got jobs") 
     print(jobs) 
