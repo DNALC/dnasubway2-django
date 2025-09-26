@@ -1,7 +1,7 @@
 from django.conf import settings
 import os
 import re
-from .models import BasecallingJob, PodFile, NanoporeSequence, UserNanoporeSequence, JobPodFile, DataFolder, NanoporeSequenceFolder, DemuxResult
+from .models import BasecallingJob, PodFile, NanoporeSequence, UserNanoporeSequence, JobPodFile, DataFolder, NanoporeSequenceFolder, DemuxResult, Job
 from .utils import (
     shelve_instance,
     ensure_instance_ready,
