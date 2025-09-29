@@ -432,6 +432,7 @@ class Job(models.Model):
         ('ARCHIVING', 'Transferring job output to archive system'),
         ('BLOCKED', 'Job blocked'),
         ('PAUSED', 'Job processing suspended'),
+        ('FINISHING', 'Getting job output files'),
         ('FINISHED', 'Job completed successfully'),
         ('CANCELLED', 'Job execution intentionally stopped'),
         ('FAILED', 'Job failed'),

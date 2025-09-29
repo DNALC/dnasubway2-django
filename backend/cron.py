@@ -29,11 +29,13 @@ def check_metabarcoding_job(tapis, job_uuid, job_obj, admin_tapis):
     current_status = status.get("status")
     print("Current status: " + current_status)
     user = job_obj.user
-    if current_status in ["FAILED", "STOPPED", "FINISHED", "CANCELLED"]:
+    if current_status in ["FAILED", "STOPPED", "FINISHED", "CANCELLED", "FINISHING"]:
         # cleanup is optional for demux jobs – no pod files here
         pass
 
     if current_status == "FINISHED":
+        job_obj.status = "FINISHING"
+        job_obj.save(update_fields=["status"])
         # List files from Tapis job archive
         all_files = list_all_files(tapis, job_uuid)
 
