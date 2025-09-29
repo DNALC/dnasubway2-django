@@ -12,22 +12,29 @@ from .utils import (
     get_file_content,
 )
 from django.core.files.base import ContentFile
+from datetime import datetime
+
+def tprint(*args, **kwargs):
+    stamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    sep = kwargs.get('sep', ' ')
+    end = kwargs.get('end', '\n')
+    print(stamp + ' :: ', *args, sep=sep, end=end)
 
 def get_job_status(tapis, job_uuid):
     try:
         job_details = tapis.jobs.getJob(jobUuid=job_uuid)
         return job_details
     except Exception as e:
-        print("Error retrieving job details:", e)
+        tprint("Error retrieving job details:", e)
         return None
 
 def check_metabarcoding_job(tapis, job_uuid, job_obj, admin_tapis):
-    print("Checking metabarcoding job " + job_uuid)
+    tprint("Checking metabarcoding job " + job_uuid)
     status = get_job_status(tapis, job_uuid)
     if not status:
         return
     current_status = status.get("status")
-    print("Current status: " + current_status)
+    tprint("Current status: " + current_status)
     user = job_obj.user
 
     if current_status == "FINISHED":
@@ -48,7 +55,7 @@ def check_metabarcoding_job(tapis, job_uuid, job_obj, admin_tapis):
             demux_result, _ = DemuxResult.objects.get_or_create(job=job_obj)
 
             if qza_file:
-                print("GET " + qza_file)
+                tprint("GET " + qza_file)
                 file_content = tapis.files.getContents(systemId="js2_dnasubway2", path=f"scratch/{user.username}/job-{job_uuid}/imported-demux.qza")
                 demux_result.demux_qza.save(
                     f"{demux_result.id}-imported-demux.qza",
@@ -56,8 +63,8 @@ def check_metabarcoding_job(tapis, job_uuid, job_obj, admin_tapis):
                     save=False,
                 )
             if qzv_file:
-                print("GET " + qzv_file)
-                file_content = get_file_content(tapis, job_uuid, qzv_file)
+                tprint("GET " + qzv_file)
+                file_content = tapis.files.getContents(systemId="js2_dnasubway2", path=f"scratch/{user.username}/job-{job_uuid}/imported-demux.qzv")
                 demux_result.demux_summary_qzv.save(
                     f"{demux_result.id}-imported-demux.qzv",
                     ContentFile(file_content),
@@ -67,24 +74,23 @@ def check_metabarcoding_job(tapis, job_uuid, job_obj, admin_tapis):
 
             # cleanup remote job dir
             try:
-                print("Skip delete")
-                #admin_tapis.files.delete(
-                #    systemId="js2_dnasubway2",
-                #    path=f"scratch/{user.username}/job-{job_uuid}/",
-                #)
-                #print(f"Deleted /scratch/{user.username}/job-{job_uuid}/ from Tapis")
+                admin_tapis.files.delete(
+                    systemId="js2_dnasubway2",
+                    path=f"scratch/{user.username}/job-{job_uuid}/",
+                )
+                tprint(f"Deleted /scratch/{user.username}/job-{job_uuid}/ from Tapis")
             except Exception as e:
-                print(f"Failed to delete job files for {job_uuid}: {e}")
+                tprint(f"Failed to delete job files for {job_uuid}: {e}")
     job_obj.status = current_status
     job_obj.save(update_fields=["status"])
-    print("Metabarcoding job status:", current_status)
+    tprint("Metabarcoding job status:", current_status)
 
 def check_job(tapis, job_uuid, job_obj, admin_tapis):
-    print("Checking job " + job_uuid)
+    tprint("Checking job " + job_uuid)
     status = get_job_status(tapis, job_uuid)
     if status:
         current_status = status.get("status")
-        print("Current status: " + current_status)
+        tprint("Current status: " + current_status)
         user = job_obj.job.user
 
         # If job is in a terminal state, remove PodFiles
@@ -106,9 +112,9 @@ def check_job(tapis, job_uuid, job_obj, admin_tapis):
                     continue
 
                 # Retrieve file content from Tapis
-                print("GET " + file_path)
+                tprint("GET " + file_path)
                 file_content = get_file_content(tapis, job_uuid, file_path)
-                print("GOT " + file_path)
+                tprint("GOT " + file_path)
 
                 # Derive sequence filename and display name
                 seq_filename = f"{job_obj.id}.fastq.gz"  # sequence record ID placeholder (we’ll adjust)
@@ -141,14 +147,14 @@ def check_job(tapis, job_uuid, job_obj, admin_tapis):
                     systemId="js2_dnasubway_full_gpu",
                     path=f"home/exouser/{user.username}/job-{job_uuid}/"
                 )
-                print(f"Deleted /home/exouser/{user.username}/job-{job_uuid}/ from Tapis")
+                tprint(f"Deleted /home/exouser/{user.username}/job-{job_uuid}/ from Tapis")
             except Exception as e:
-                print(f"Failed to delete /home/exouser/{user.username}/job-{job_uuid}/ from Tapis: {e}")
+                tprint(f"Failed to delete /home/exouser/{user.username}/job-{job_uuid}/ from Tapis: {e}")
 
         # Update status in DB
         job_obj.job.status = current_status
         job_obj.job.save(update_fields=["status"])
-        print("Job status:", current_status)
+        tprint("Job status:", current_status)
 
 def poll_active_jobs():
     get_service_token()
@@ -163,7 +169,7 @@ def poll_active_jobs():
         usernames = set(j.user.username for j in demux_jobs)
 
         for username in usernames:
-            print("Checking demux jobs for user " + username)
+            tprint("Checking demux jobs for user " + username)
             user_jobs = [j for j in demux_jobs if j.user.username == username]
 
             user_token = generate_user_token(username)
@@ -183,26 +189,26 @@ def poll_active_jobs():
     # 2. Ensure instance is ready
     active, err = ensure_instance_ready(settings.INSTANCE_NAME)
     if err:
-        print(err)
+        tprint(err)
         return
 
     # 3. Get service token
-    print("Got service token") 
-    print("Got jobs") 
-    print(jobs) 
+    tprint("Got service token")
+    tprint("Got jobs")
+    tprint(jobs)
 
     # 4. Group by user
     usernames = set(j.job.user.username for j in jobs)
-    print("Got users") 
-    print(usernames)
+    tprint("Got users")
+    tprint(usernames)
 
 
     for username in usernames:
-        print("Checking user " + username)
+        tprint("Checking user " + username)
         user_jobs = [j for j in jobs if j.job.user.username == username]
         
         user_token = generate_user_token(username)
-        print("User token: " + user_token) 
+        tprint("User token: " + user_token)
         tapis = connect_to_tapis(username, user_token)
 
         for job in user_jobs:
@@ -216,11 +222,11 @@ def poll_active_jobs():
     )
 
     if not remaining_jobs.exists() and not PodFile.objects.exists() and settings.SHELVE_INSTANCE:
-        print(f"No active jobs or pod files remaining, shelving instance {settings.INSTANCE_NAME}")
+        tprint(f"No active jobs or pod files remaining, shelving instance {settings.INSTANCE_NAME}")
         instance_shelved, err = shelve_instance(settings.INSTANCE_NAME)
         if err:
-            print(err)
+            tprint(err)
     elif remaining_jobs.exists():
-        print(f"{remaining_jobs.count()} active jobs remain, instance stays active")
+        tprint(f"{remaining_jobs.count()} active jobs remain, instance stays active")
     else:
-        print(f"{PodFile.objects.count()} PodFile(s) remain, instance stays active")
+        tprint(f"{PodFile.objects.count()} PodFile(s) remain, instance stays active")
