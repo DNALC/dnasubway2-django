@@ -67,11 +67,12 @@ def check_metabarcoding_job(tapis, job_uuid, job_obj, admin_tapis):
 
             # cleanup remote job dir
             try:
-                admin_tapis.files.delete(
-                    systemId="js2_dnasubway2",
-                    path=f"scratch/{user.username}/job-{job_uuid}/",
-                )
-                print(f"Deleted /scratch/{user.username}/job-{job_uuid}/ from Tapis")
+                print("Skip delete")
+                #admin_tapis.files.delete(
+                #    systemId="js2_dnasubway2",
+                #    path=f"scratch/{user.username}/job-{job_uuid}/",
+                #)
+                #print(f"Deleted /scratch/{user.username}/job-{job_uuid}/ from Tapis")
             except Exception as e:
                 print(f"Failed to delete job files for {job_uuid}: {e}")
     job_obj.status = current_status
