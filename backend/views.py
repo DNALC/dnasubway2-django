@@ -1084,7 +1084,7 @@ def project_info(request):
             if hasattr(demux_job, "demux_result") and demux_job.demux_result.demux_summary_qzv:
                 summary_path = demux_job.demux_result.demux_summary_qzv.path
             demux["running"] = running
-            demux["id"] = demux_job
+            demux["id"] = demux_job.id
             demux["status"] = demux_job.status
             if rand_samples:
                 demux["randomSamples"] = rand_samples
