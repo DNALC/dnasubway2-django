@@ -29,9 +29,6 @@ def check_metabarcoding_job(tapis, job_uuid, job_obj, admin_tapis):
     current_status = status.get("status")
     print("Current status: " + current_status)
     user = job_obj.user
-    if current_status in ["FAILED", "STOPPED", "FINISHED", "CANCELLED", "FINISHING"]:
-        # cleanup is optional for demux jobs – no pod files here
-        pass
 
     if current_status == "FINISHED":
         job_obj.status = "FINISHING"
@@ -159,7 +156,7 @@ def poll_active_jobs():
     demux_jobs = (
         Job.objects
         .filter(appId=settings.QIIME2_DEMUX_APP_ID)
-        .exclude(status__in=['FINISHED', 'CANCELLED', 'FAILED', 'STOPPED', 'STARTING', 'FAILED_BOOT'])
+        .exclude(status__in=['FINISHED', 'CANCELLED', 'FAILED', 'STOPPED', 'STARTING', 'FAILED_BOOT', 'FINISHING'])
     )
     if demux_jobs.exists():
         usernames = set(j.user.username for j in demux_jobs)
