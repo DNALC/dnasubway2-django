@@ -1082,7 +1082,7 @@ def project_info(request):
                 rand_samples = demux_job.demux_detail.rand_samples
             summary_path = None
             if hasattr(demux_job, "demux_result") and demux_job.demux_result.demux_summary_qzv:
-                summary_path = demux_job.demux_result.demux_summary_qzv.path
+                summary_path = demux_job.demux_result.demux_summary_qzv.name
             demux["running"] = running
             demux["id"] = demux_job.id
             demux["status"] = demux_job.status
