@@ -52,7 +52,7 @@ def check_metabarcoding_job(tapis, job_uuid, job_obj, admin_tapis):
                 print("GET " + qza_file)
                 file_content = get_file_content(tapis, job_uuid, qza_file)
                 demux_result.demux_qza.save(
-                    f"{job_uuid}-imported-demux.qza",
+                    f"{demux_result.id}-imported-demux.qza",
                     ContentFile(file_content),
                     save=False,
                 )
@@ -60,7 +60,7 @@ def check_metabarcoding_job(tapis, job_uuid, job_obj, admin_tapis):
                 print("GET " + qzv_file)
                 file_content = get_file_content(tapis, job_uuid, qzv_file)
                 demux_result.demux_summary_qzv.save(
-                    f"{job_uuid}-imported-demux.qzv",
+                    f"{demux_result.id}-imported-demux.qzv",
                     ContentFile(file_content),
                     save=False,
                 )
