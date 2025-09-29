@@ -1060,11 +1060,38 @@ def project_info(request):
             } if hasattr(muscle_data, 'consensus') else None
 
     metabarcoding = {}
+    demux = {}
     if project.project_type == "UB":
         project_metabarcoding_files = ProjectMetabarcodingFile.objects.filter(project=project).select_related('metabarcoding_file').order_by('metabarcoding_file__name')
         for project_metabarcoding_file in project_metabarcoding_files:
             metabarcoding_file = project_metabarcoding_file.metabarcoding_file
             metabarcoding[metabarcoding_file.id] = metabarcoding_file.name
+        demux_job = (
+            Job.objects.filter(
+                project=project,
+                appId=settings.QIIME2_DEMUX_APP_ID,
+            )
+            .order_by("-id")
+            .first()
+        )
+        if demux_job:
+            running = demux_job.status not in ["FINISHED", "CANCELLED", "FAILED"]
+
+            rand_samples = None
+            if hasattr(demux_job, "demux_detail"):
+                rand_samples = job.demux_detail.rand_samples
+            summary_path = None
+            if hasattr(demux_job, "demux_result") and demux_job.demux_result.demux_summary_qzv:
+                summary_path = demux_job.demux_result.demux_summary_qzv.path
+            demux["running"] = running
+            demux["id"] = demux_job
+            demux["status"] = demux_job.status
+            if rand_samples:
+                demux["randomSamples"] = rand_samples
+            if summary_path:
+                demux["results"] = {}
+                demux["results"]["summary"] = summary_path
+
 
     project_data = {
         'id': project.id,
@@ -1090,6 +1117,7 @@ def project_info(request):
         'sequences': serialized_sequences,
         'nanopore_sequences': nanopore,
         'metabarcoding': metabarcoding,
+        'demux': demux,
     }
     return JsonResponse({'success': 'Project retrieved', 'project': project_data})
 
