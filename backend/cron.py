@@ -49,7 +49,7 @@ def check_metabarcoding_job(tapis, job_uuid, job_obj, admin_tapis):
 
             if qza_file:
                 print("GET " + qza_file)
-                file_content = get_file_content(tapis, job_uuid, qza_file)
+                file_content = tapis.files.getContents(systemId="js2_dnasubway2", path=f"scratch/{user.username}/job-{job_uuid}/imported-demux.qza")
                 demux_result.demux_qza.save(
                     f"{demux_result.id}-imported-demux.qza",
                     ContentFile(file_content),
