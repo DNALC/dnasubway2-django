@@ -189,6 +189,7 @@ def register(request):
     gender = data.get('gender')
     occupation = data.get('occupation')
     source = data.get('source')
+    institution = data.get('institution')
     ethnicity_str = data.get('ethnicity')
     # Ethnicity is a multi-select; make it always be an array, even if only one option was chosen
     if isinstance(ethnicity_str, str):
@@ -236,6 +237,11 @@ def register(request):
     if len(email) > 254:
         return JsonResponse({'error': 'Email must be no longer than 254 characters'}, status=400)
 
+    # Check if institution is longer than 64 characters
+    if len(institution) > 64:
+        return JsonResponse({'error': 'Institution must be no longer than 64 characters'}, status=400)
+
+
     # Check if username contains only allowed characters
     if not re.match(r'^[\w.@+-]+$', username):
         return JsonResponse({'error': 'Username can only contain alphanumeric, _, @, +, . and - characters'}, status=400)
@@ -282,7 +288,8 @@ def register(request):
         gender=gender,
         occupation=occupation,
         source=source,
-        ethnicity=ethnicity
+        ethnicity=ethnicity,
+        institution=institution
     )
     auth_user = authenticate(request, username=username, password=password)
     if auth_user is not None:
@@ -606,6 +613,7 @@ def get_user_fields(request):
                     'gender': user_profile.gender,
                     'occupation': user_profile.occupation,
                     'source': user_profile.source,
+                    'institution': user_profile.institution,
                     'pending_access_request': pending_access_request,
                     'elevated_access': user_profile.elevated_access,
                     'verified': user_profile.verified,
@@ -650,6 +658,7 @@ def get_user_fields(request):
                     user_profile.gender = data.get('gender', user_profile.gender)
                     user_profile.occupation = data.get('occupation', user_profile.occupation)
                     user_profile.source = data.get('source', user_profile.source)
+                    user_profile.institution = data.get('institution', user_profile.institution)
                     if email_changed:
                         user_profile.verified = False
                     user_profile.save()
@@ -3005,6 +3014,9 @@ def list_pending_permission_requests(request):
         {
             'username': token.user.username,
             'email': token.user.email,
+            'first_name': token.user.first_name,
+            'last_name': token.user.last_name,
+            'institution': token.user.userprofile.institution if hasattr(token.user, 'userprofile') else None,
             'token': token.token,
             'status': token.status,
             'reason': token.reason

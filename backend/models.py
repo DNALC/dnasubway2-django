@@ -50,6 +50,7 @@ class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     country = models.CharField(max_length=2)
     postal_code = models.CharField(max_length=12)
+    institution = models.CharField(max_length=64, default='')
     GENDER_CHOICES = (
         ('m', 'Male'),
         ('f', 'Female'),
