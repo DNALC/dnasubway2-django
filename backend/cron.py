@@ -10,6 +10,7 @@ from .utils import (
     connect_to_tapis,
     list_all_files,
     get_file_content,
+    download_tapis_file,
 )
 from django.core.files.base import ContentFile
 from datetime import datetime
@@ -28,7 +29,7 @@ def get_job_status(tapis, job_uuid):
         tprint("Error retrieving job details:", e)
         return None
 
-def check_metabarcoding_job(tapis, job_uuid, job_obj, admin_tapis):
+def check_metabarcoding_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
     tprint("Checking metabarcoding job " + job_uuid)
     status = get_job_status(tapis, job_uuid)
     if not status:
@@ -45,6 +46,8 @@ def check_metabarcoding_job(tapis, job_uuid, job_obj, admin_tapis):
 
         qza_file = None
         qzv_file = None
+        qza_archived = False
+        qzv_archived = False
 
         for file_path in all_files:
             if file_path.endswith("imported-demux.qza"):
@@ -56,20 +59,24 @@ def check_metabarcoding_job(tapis, job_uuid, job_obj, admin_tapis):
 
             if qza_file:
                 tprint("GET " + qza_file)
-                file_content = tapis.files.getContents(systemId="js2_dnasubway2", path=f"scratch/{user.username}/job-{job_uuid}/imported-demux.qza")
-                demux_result.demux_qza.save(
-                    f"{demux_result.id}-imported-demux.qza",
-                    ContentFile(file_content),
-                    save=False,
-                )
+                file_content = download_tapis_file("js2_dnasubway2", user_token, f"scratch/{user.username}/job-{job_uuid}/imported-demux.qza")
+                if file_content:
+                    demux_result.demux_qza.save(
+                        f"{demux_result.id}-imported-demux.qza",
+                        ContentFile(file_content),
+                        save=False,
+                    )
+                    qza_archived = True
             if qzv_file:
                 tprint("GET " + qzv_file)
-                file_content = tapis.files.getContents(systemId="js2_dnasubway2", path=f"scratch/{user.username}/job-{job_uuid}/imported-demux.qzv")
-                demux_result.demux_summary_qzv.save(
-                    f"{demux_result.id}-imported-demux.qzv",
-                    ContentFile(file_content),
-                    save=False,
-                )
+                file_content = download_tapis_file("js2_dnasubway2", user_token, f"scratch/{user.username}/job-{job_uuid}/imported-demux.qzv")
+                if file_content:
+                    demux_result.demux_summary_qzv.save(
+                        f"{demux_result.id}-imported-demux.qzv",
+                        ContentFile(file_content),
+                        save=False,
+                    )
+                    qzv_archived = True
             demux_result.save()
 
             # cleanup remote job dir
@@ -81,6 +88,10 @@ def check_metabarcoding_job(tapis, job_uuid, job_obj, admin_tapis):
                 tprint(f"Deleted /scratch/{user.username}/job-{job_uuid}/ from Tapis")
             except Exception as e:
                 tprint(f"Failed to delete job files for {job_uuid}: {e}")
+        if not qza_archived or not qzv_archived:
+            job_obj.status = "FAILED"
+            job_obj.save(update_fields=["status"])
+            return
     job_obj.status = current_status
     job_obj.save(update_fields=["status"])
     tprint("Metabarcoding job status:", current_status)
@@ -176,7 +187,7 @@ def poll_active_jobs():
             tapis = connect_to_tapis(username, user_token)
 
             for job in user_jobs:
-                check_metabarcoding_job(tapis, job.uuid, job, admin_tapis)
+                check_metabarcoding_job(tapis, user_token, job.uuid, job, admin_tapis)
     # 1. Query active jobs
     jobs = (
         BasecallingJob.objects

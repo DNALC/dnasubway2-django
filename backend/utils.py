@@ -581,6 +581,21 @@ def list_all_files(tapis, job_uuid, output_path='/', limit=150):
 
     return files
 
+def download_tapis_file(system_id, user_token, remote_path):
+    url = f"https://dnasubway.tapis.io/v3/files/content/{system_id}/{remote_path}"
+    headers = {"X-Tapis-Token": user_token}
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=60)
+        if resp.status_code == 200:
+            return resp.content
+        else:
+            print(f"Download failed {resp.status_code}: {resp.text}")
+            return None
+    except Exception as e:
+        print(f"Error downloading {remote_path}: {e}")
+        return None
+
 def get_file_content(tapis, job_uuid, file_path):
     # Use getJobOutputDownload() to retrieve file content
     content = tapis.jobs.getJobOutputDownload(jobUuid=job_uuid, outputPath=file_path)
