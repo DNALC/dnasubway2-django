@@ -43,6 +43,11 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
         if not file_path or not default_storage.exists(file_path):
             return
 
+        # Use os.path to check if file is in 'sample' or 'reference' directories
+        parts = file_path.split(os.sep)
+        if "sample" in parts or "reference" in parts:
+            return
+
         try:
             file_size = default_storage.size(file_path)
         except Exception:
