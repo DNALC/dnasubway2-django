@@ -13,6 +13,7 @@ from .models import (
     MetadataFile,
     ProjectNanoporeSequence,
     NanoporeSequence,
+    NanoporeSampleSet,
     UserNanoporeSequence,
     ProjectDataFile,
     DataFile,
@@ -106,7 +107,15 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
         guest_user_link = user_links.filter(user__username__startswith="guest_").exists()
         guest_owned = guest_user_link
 
-        if deleted_links.exists() and not active_links.exists():
+        sample_set_exists = NanoporeSampleSet.objects.filter(
+            directory__in=[
+                sample_set.directory
+                for sample_set in NanoporeSampleSet.objects.all()
+                if seq.file.name.startswith(sample_set.directory)
+            ]
+        ).exists()
+
+        if deleted_links.exists() and not active_links.exists() and not sample_set_exists:
             # For guest-owned, skip the user exclusion
             if guest_owned or not user_links.exists():
                 maybe_delete(seq.file, dry_run)
@@ -125,8 +134,9 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
         if deleted_links.exists() and not active_links.exists():
             # Normally skip in_sequence_repository=True, but not for guest-owned
             if guest_owned or not df.in_sequence_repository:
-                for field_name in ["associated_abi", "associated_fasta"]:
-                    maybe_delete(getattr(df, field_name), dry_run)
+                if df.source not in ('sample', 'reference'):
+                    for field_name in ["associated_abi", "associated_fasta"]:
+                        maybe_delete(getattr(df, field_name), dry_run)
 
     # ---- STEP 7: MuscleJob ----
     for mj in MuscleJob.objects.filter(job__project__deleted=True):
