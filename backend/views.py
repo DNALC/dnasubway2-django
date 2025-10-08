@@ -827,9 +827,12 @@ def project_info(request):
 
     pid = request.GET.get('pid')
     # Retrieve project info for the current authenticated user or public
-    project = Project.objects.filter(
-        Q(id=pid) & (Q(user=request.user) | Q(public=True))
-    ).first()
+    if request.user.is_superuser:
+        project = Project.objects.filter(id=pid).first()
+    else:
+        project = Project.objects.filter(
+            Q(id=pid) & (Q(user=request.user) | Q(public=True))
+        ).first()
     if not project:
         return JsonResponse({'error': 'Project not found'}, status=404)
     # Retrieve project data files for the current authenticated user
