@@ -4033,9 +4033,9 @@ def upload_metadata(request):
         return JsonResponse({"error": "File must have .tsv or .txt extension"}, status=400)
 
     # Validate contents
-    valid, error_msg = validate_qiime2_metadata_format(uploaded_file)
+    valid, errors = validate_qiime2_metadata_format(uploaded_file)
     if not valid:
-        return JsonResponse({"error": error_msg}, status=400)
+        return JsonResponse({"error": "Invalid metadata file", "warnings": errors}, status=400)
 
     try:
         # Create file record
@@ -4043,6 +4043,7 @@ def upload_metadata(request):
             user=user,
             name=uploaded_file.name,
         )
+        uploaded_file.seek(0)
         metadata_file.file.save(f"{metadata_file.id}.tsv", uploaded_file, save=True)
 
         # Link to project

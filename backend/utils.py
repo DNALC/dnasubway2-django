@@ -282,7 +282,7 @@ def validate_fastq_gz(file_obj):
         # Rewind file pointer
         file_obj.seek(0)
         with gzip.open(file_obj, "rt") as handle:
-            # Try parsing the first record only (don’t load the whole file)
+            # Try parsing the first record only (don't load the whole file)
             first = next(SeqIO.parse(handle, "fastq"))
             if not first.id:
                 return False, "Invalid FASTQ: missing sequence ID"
@@ -291,95 +291,153 @@ def validate_fastq_gz(file_obj):
     except Exception as e:
         return False, f"Invalid FASTQ: {e}"
 
-RESERVED_ID_HEADERS_CI = {
-    "id", "sampleid", "sample id", "sample-id",
-    "featureid", "feature id", "feature-id",
-}
-RESERVED_ID_HEADERS_CS = {
-    "#SampleID", "#Sample ID", "#OTUID", "#OTU ID", "sample_name",
-}
+CASE_INSENSITIVE_HEADERS = {'id', 'sampleid', 'sample id', 'sample-id', 'featureid', 'feature id', 'feature-id'}
 
+CASE_SENSITIVE_HEADERS = {'#SampleID', '#Sample ID', '#OTUID', '#OTU ID', 'sample_name'}
 
-def validate_identifier(identifier):
-    """Validate sample/feature identifiers with stricter rules."""
-    if not identifier:
-        return False, "Identifier cannot be empty"
+NUMERIC_PATTERN = re.compile(r'^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$')
+SAFE_ID_PATTERN = re.compile(r'^[\w.-]{1,36}$')
 
-    if identifier.startswith("#"):
-        # rows starting with '#' are comments (handled separately in parser)
-        return False, "Identifiers cannot start with '#'"
+def number_valid(cell_val):
+    if cell_val is None:
+        return False
+    s = cell_val.strip()
+    if s == "":
+        return True
 
-    if len(identifier) > 36:
-        return False, f"Identifier '{identifier}' exceeds 36 characters"
+    if not NUMERIC_PATTERN.fullmatch(s):
+        return False
 
-    for c in identifier:
-        if not (c.isalnum() or c in ".-"):
-            return False, f"Identifier '{identifier}' contains invalid character '{c}'"
+    try:
+        num = float(s)
+        if not float('-inf') < num < float('inf'):
+            return False
+    except ValueError:
+        return False
 
-    return True, None
+    digits_only = re.sub(r'[^0-9]', '', s)
+    if len(digits_only) > 15:
+        return False
 
+    return True
+
+def validate_qiime2_tsv(tsv_string):
+    errors = []
+    lines = tsv_string.splitlines()
+    header_line = None
+    column_types = []
+    id_set = set()
+
+    # --- Step 1: Detect header row ---
+    for i, line in enumerate(lines):
+        line_strip = line.strip()
+        if not line_strip:
+            continue
+        headers = [h.strip() for h in line_strip.split('\t')]
+        if headers[0] in CASE_SENSITIVE_HEADERS or headers[0].lower() in {h.lower() for h in CASE_INSENSITIVE_HEADERS}:
+            header_line_num = i
+            header_line = headers
+            break
+    else:
+        errors.append("No valid header row with a QIIME2 ID column found.")
+        return errors
+
+    # --- Step 2: Header checks ---
+    if len(header_line) != len(set(h.lower() for h in header_line)):
+        errors.append("Header names must be unique (case-insensitive).")
+    if any(not h for h in header_line):
+        errors.append("Column names cannot be empty.")
+    for col_name in header_line[1:]:
+        if col_name in CASE_SENSITIVE_HEADERS or col_name.lower() in {h.lower() for h in CASE_INSENSITIVE_HEADERS}:
+            errors.append(f"Column '{col_name}' is a reserved ID header and cannot be used")
+
+    # --- Step 3: Optional #q2:types ---
+    next_line_idx = header_line_num + 1
+    if next_line_idx < len(lines):
+        line = lines[next_line_idx].strip()
+        if line.lower().startswith('#q2:types'):
+            type_cells = [c.strip().lower() for c in line.split('\t')]
+            if len(type_cells) > len(header_line):
+                errors.append(f"#q2:types row has more cells ({len(type_cells)}) than header ({len(header_line)})")
+            elif len(type_cells) < len(header_line):
+                type_cells += [''] * (len(header_line) - len(type_cells))  # pad missing types
+            for t in type_cells[1:]:
+                if t not in ('categorical', 'numeric', ''):
+                    errors.append(f"#q2:types contains invalid type '{t}'")
+            column_types = type_cells
+
+    # --- Step 4: Data rows ---
+    data_start_idx = header_line_num + 1
+    if column_types:
+        data_start_idx += 1  # skip #q2:types row
+
+    for line_num, line in enumerate(lines[data_start_idx:], start=data_start_idx + 1):
+        line_strip = line.strip()
+        if not line_strip or line_strip.startswith('#'):
+            continue
+        cells = [c.strip() for c in line_strip.split('\t')]
+        if len(cells) > len(header_line):
+            errors.append(f"Line {line_num}: Row has more cells ({len(cells)}) than header ({len(header_line)})")
+        elif len(cells) < len(header_line):
+            cells += [''] * (len(header_line) - len(cells))  # pad missing cells
+
+        # --- ID validation ---
+        sample_id = cells[0]
+        if not sample_id:
+            errors.append(f"Line {line_num}: ID cell cannot be empty.")
+        if sample_id.startswith('#'):
+            errors.append(f"Line {line_num}: ID cannot start with '#'")
+        if sample_id in CASE_SENSITIVE_HEADERS or sample_id.lower() in {h.lower() for h in CASE_INSENSITIVE_HEADERS}:
+            errors.append(f"Line {line_num}: ID cannot be a reserved header name '{sample_id}'")
+        if sample_id in id_set:
+            errors.append(f"Line {line_num}: Duplicate ID '{sample_id}' found.")
+        if not SAFE_ID_PATTERN.match(sample_id):
+            errors.append(f"Line {line_num}: ID '{sample_id}' contains invalid characters or is too long (>36)")
+        id_set.add(sample_id)
+
+        # --- Numeric validation ---
+        for col_idx, col_name in enumerate(header_line[1:], start=1):
+            cell_val = cells[col_idx]
+            col_type = ''
+            if column_types:
+                col_type = column_types[col_idx].lower()
+            if cell_val and col_type == 'numeric' and not number_valid(cell_val):
+                errors.append(f"Line {line_num}: Cell '{cell_val}' in column '{col_name}' is not a valid numeric value.")
+
+    if not id_set:
+        errors.append("No valid IDs found in the first column.")
+
+    return errors
 
 def validate_qiime2_metadata_format(file_obj):
     """
     Validate metadata file against QIIME2 rules + stricter identifier checks.
-    Returns (True, None) if valid, (False, error_message) otherwise.
+    Returns (True, None) if valid, (False, errors) otherwise.
     """
-    file_obj.seek(0)
-    text_stream = TextIOWrapper(file_obj, encoding="utf-8")
-    reader = csv.reader(text_stream, delimiter="\t")
-
     try:
-        header = next(reader)
-    except StopIteration:
-        return False, "Metadata file is empty"
+        file_obj.seek(0)
+        text_stream = TextIOWrapper(file_obj, encoding="utf-8")
 
-    if not header:
-        return False, "Header row missing"
+        # Read contents into a single UTF-8 string
+        tsv_string = text_stream.read()
 
-    id_header = header[0]
-    if (
-        id_header.lower() not in RESERVED_ID_HEADERS_CI
-        and id_header not in RESERVED_ID_HEADERS_CS
-    ):
-        return False, f"Invalid ID column name '{id_header}'"
+        errors = validate_qiime2_tsv(tsv_string)
 
-    # Ensure other column names are valid
-    seen_cols = set()
-    for col in header[1:]:
-        if not col.strip():
-            return False, "Column names cannot be empty"
+        file_obj.seek(0)
+        if errors:
+            return False, errors
 
-        if col.lower() in (c.lower() for c in RESERVED_ID_HEADERS_CI | RESERVED_ID_HEADERS_CS):
-            return False, f"Column name '{col}' is reserved"
+        return True, None
 
-        if col.lower() in seen_cols:
-            return False, f"Duplicate column name '{col}' not allowed"
-        seen_cols.add(col.lower())
-
-    ids_seen = set()
-    for row_idx, row in enumerate(reader, start=2):  # 2 = header row index + 1
-        # Skip completely empty rows
-        if not row or all(not cell.strip() for cell in row):
-            continue
-
-        # Skip comment rows (first cell starts with '#')
-        if row[0].startswith("#"):
-            continue
-
-        ident = row[0].strip()
-        if not ident:
-            return False, f"Row {row_idx}: missing identifier"
-
-        valid, error = validate_identifier(ident)
-        if not valid:
-            return False, f"Row {row_idx}: {error}"
-
-        if ident in ids_seen:
-            return False, f"Row {row_idx}: duplicate identifier '{ident}'"
-        ids_seen.add(ident)
-
-    if not ids_seen:
-        return False, "Metadata file must contain at least one identifier"
+    except Exception as e:
+        # Defensive fallback for unexpected I/O issues
+        try:
+            file_obj.seek(0)
+        except Exception:
+            pass
+        return False, ["Error reading metadata file"]
+    finally:
+        text_stream.detach()
 
     file_obj.seek(0)
     return True, None
