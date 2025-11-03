@@ -11,6 +11,8 @@ from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
+from django.core.exceptions import SuspiciousFileOperation
+import csv
 import io
 import json
 import os
@@ -24,7 +26,7 @@ import time
 import uuid
 #from django.shortcuts import render
 from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail
-from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format
+from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file
 import gzip
 import shutil
 from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task  # Celery task
@@ -1073,11 +1075,16 @@ def project_info(request):
 
     metabarcoding = {}
     demux = {}
+    metadata = {}
     if project.project_type == "UB":
         project_metabarcoding_files = ProjectMetabarcodingFile.objects.filter(project=project).select_related('metabarcoding_file').order_by('metabarcoding_file__name')
         for project_metabarcoding_file in project_metabarcoding_files:
             metabarcoding_file = project_metabarcoding_file.metabarcoding_file
             metabarcoding[metabarcoding_file.id] = metabarcoding_file.name
+        project_metadata_files = ProjectMetadataFile.objects.filter(project=project).select_related('metadata_file').order_by('metadata_file__name')
+        for project_metadata_file in project_metadata_files:
+            metadata_file = project_metadata_file.metadata_file
+            metadata[metadata_file.id] = metadata_file.name
         demux_job = (
             Job.objects.filter(
                 project=project,
@@ -1128,6 +1135,7 @@ def project_info(request):
         'uid': project.user.id,
         'sequences': serialized_sequences,
         'nanopore_sequences': nanopore,
+        'metadata': metadata,
         'metabarcoding': metabarcoding,
         'demux': demux,
     }
@@ -4037,6 +4045,12 @@ def upload_metadata(request):
     if not valid:
         return JsonResponse({"error": "Invalid metadata file", "warnings": errors}, status=400)
 
+    # Check if a file with the same name already exists for this project
+    if ProjectMetadataFile.objects.filter(
+        project=project, metadata_file__name=uploaded_file.name
+    ).exists():
+        return JsonResponse({"error": f"A file named '{uploaded_file.name}' already exists for this project."}, status=400)
+
     try:
         # Create file record
         metadata_file = MetadataFile.objects.create(
@@ -4055,6 +4069,109 @@ def upload_metadata(request):
         return JsonResponse({"id": metadata_file.id})
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
+def save_metadata(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    metadata_id = data.get('metadata_id')
+    file_contents = data.get('file_contents')
+    if not metadata_id or not file_contents:
+        return JsonResponse({"error": "Metadata id and file contents required"}, status=400)
+
+    try:
+        project_metadata_file = ProjectMetadataFile.objects.get(
+            project=project, metadata_file__id=metadata_id
+        )
+    except ProjectMetadataFile.DoesNotExist:
+        return JsonResponse({"error": "This metadata file does not belong to this project."}, status=400)
+
+    metadata_file = project_metadata_file.metadata_file
+    if not metadata_file:
+        return JsonResponse({"error": "No such metadata file."}, status=404)
+
+    errors = validate_qiime2_tsv(file_contents)
+    if errors:
+        return JsonResponse({"error": "Invalid metadata file", "warnings": errors}, status=400)
+
+    storage = metadata_file.file.storage
+    path = metadata_file.file.name  # e.g. "metadata_files/myfile.tsv"
+
+    storage.delete(path)
+    storage.save(path, ContentFile(file_contents))
+
+    return JsonResponse({'status': 'success'})
+
+def get_metadata_content(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'User is not authenticated'}, status=401)
+
+    metadata_id = request.GET.get('id')
+    if not metadata_id:
+        return JsonResponse({'error': 'id parameter is required'}, status=400)
+
+    try:
+        metadata_file = MetadataFile.objects.get(id=metadata_id)
+    except MetadataFile.DoesNotExist:
+        return JsonResponse({'error': 'Invalid MetadataFile'}, status=404)
+
+    file_obj = metadata_file.file
+    try:
+        if not file_obj:
+            return JsonResponse({'error': 'No MetadataFile found'}, status=404)
+        if hasattr(file_obj, 'closed') and not file_obj.closed:
+            file_obj.close()
+
+        file_obj.open('r')
+    except (FileNotFoundError, SuspiciousFileOperation, IOError, OSError) as e:
+        return JsonResponse({'error': "Unable to open file"}, status=400)
+
+    reader = csv.reader(file_obj, delimiter='\t')
+
+    header = None
+    q2_types = []
+    rows = []
+
+    for row in reader:
+        if not row:  # skip empty lines
+            continue
+
+        first_cell = row[0].strip()
+
+        if first_cell.startswith("#q2:types"):
+            q2_types = [cell.strip() for cell in row[1:]]  # skip the "#q2:types" cell
+            continue
+
+        # Detect header line
+        if header is None:
+            if first_cell.startswith("#SampleID") or first_cell.startswith("#Sample ID"):
+                header = row
+                continue
+            elif first_cell.startswith("#"):
+                # Comment line before header — skip it
+                continue
+            else:
+                header = row
+                continue
+
+        # Skip comments after header
+        if first_cell.startswith("#"):
+            continue
+
+        rows.append(row)
+
+    file_obj.close()
+
+    q2_types = q2_types or []
+
+    return JsonResponse({
+        'header': header or [],
+        'q2_types': q2_types,
+        'rows': rows,
+    })
 
 def create_datafolder(request):
     parsed_data = parse_user_data(request)
@@ -4526,3 +4643,74 @@ def demux(request):
     )
     submit_demux_job_task.delay(job.id, randSamples)
     return JsonResponse({'job_uuid': job.uuid, 'status': job.status})
+
+def upload_cyverse_metabarcoding(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    username = data.get('username')
+    jwt = data.get('jwt')
+    selectedFiles = data.get('selectedFiles', [])
+
+    if not selectedFiles:
+        return JsonResponse({'error': 'No files selected'}, status=400)
+
+    if not jwt:
+        return JsonResponse({'error': 'JWT is required for CyVerse access'}, status=401)
+
+    created_files = []
+
+    for file_uri in selectedFiles:
+        # Expected format: tapis://data.cyverse.org/home/shared/.../filename.fastq.gz
+        filename = file_uri.split("/")[-1]
+        if not filename.endswith(".fastq.gz"):
+            return JsonResponse({'error': f"Invalid file extension for {filename}"}, status=400)
+
+        # Validate filename pattern (like upload_metabarcoding)
+        FILENAME_REGEX = re.compile(
+            rf'^[A-Za-z0-9\.-]+_[^_]+_L[0-9]{{3}}_R{"[12]" if project.read_type == "paired" else "1"}_001\.fastq\.gz$'
+        )
+        if not FILENAME_REGEX.match(filename):
+            return JsonResponse({'error': f"Invalid filename format: {filename}"}, status=400)
+
+        # Skip duplicates
+        if ProjectMetabarcodingFile.objects.filter(
+            project=project, metabarcoding_file__name=filename
+        ).exists():
+            continue
+
+        try:
+            file_content = download_cyverse_file(jwt, file_uri)
+            if not file_content:
+                return JsonResponse({"error": f"Failed to fetch {file_uri} from CyVerse"}, status=400)
+
+            metabarcoding_file = MetabarcodingFile.objects.create(
+                user=request.user,
+                name=filename,
+            )
+
+            # Save file locally using Django storage
+            metabarcoding_file.file.save(
+                f"{metabarcoding_file.id}.fastq.gz",
+                ContentFile(file_content),
+                save=True
+            )
+
+            # Link to project
+            ProjectMetabarcodingFile.objects.create(
+                project=project,
+                metabarcoding_file=metabarcoding_file
+            )
+
+            created_files.append(metabarcoding_file.id)
+
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
+
+    if not created_files:
+        return JsonResponse({"error": "No new files created (all duplicates skipped)"}, status=400)
+
+    return JsonResponse({"created_files": created_files}, status=200)
