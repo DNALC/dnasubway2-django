@@ -654,6 +654,22 @@ def download_tapis_file(system_id, user_token, remote_path):
         print(f"Error downloading {remote_path}: {e}")
         return None
 
+def download_cyverse_file(user_token, tapis_url):
+    remote_path = tapis_url.split("tapis://", 1)[-1]
+    url = f"https://cyverse.tapis.io/v3/files/content/{remote_path}"
+    headers = {"X-Tapis-Token": user_token}
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=60)
+        if resp.status_code == 200:
+            return resp.content
+        else:
+            print(f"Download failed {resp.status_code}: {resp.text}")
+            return None
+    except Exception as e:
+        print(f"Error downloading {remote_path}: {e}")
+        return None
+
 def get_file_content(tapis, job_uuid, file_path):
     # Use getJobOutputDownload() to retrieve file content
     content = tapis.jobs.getJobOutputDownload(jobUuid=job_uuid, outputPath=file_path)

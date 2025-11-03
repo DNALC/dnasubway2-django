@@ -80,8 +80,11 @@ urlpatterns = [
     path("backend/export_genbank", export_to_genbank, name='genbank_export'),
     path("backend/user_id", user_id, name='user_id'),
     path("backend/upload_metabarcoding", upload_metabarcoding, name='upload_metabarcoding'),
+    path("backend/upload_cyverse_metabarcoding", upload_cyverse_metabarcoding, name='upload_cyverse_metabarcoding'),
     path("backend/upload_metadata", upload_metadata, name='upload_metadata'),
+    path("backend/save_metadata", save_metadata, name='save_metadata'),
     path("backend/delete_metabarcoding", delete_metabarcoding_file, name='delete_metabarcoding'),
+    path("backend/metadata_content", get_metadata_content, name='metadata_content'),
     path("backend/demux", demux, name='demux'),
 ]
 
