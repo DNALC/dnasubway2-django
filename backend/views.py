@@ -1624,6 +1624,8 @@ def consense_sequence(request):
     dataFile_2.save()
     #consense_result = consense(request.user, PROTOCOL + request.get_host()+'/backend', dataFile_1, dataFile_2, file1_reverse, file2_reverse, project.id)
     consense_result = local_consense(PROTOCOL + request.get_host()+'/backend', dataFile_1, dataFile_2, file1_reverse, file2_reverse, project, pairLabel)
+    if "status" in consense_result and consense_result["status"] == "error":
+        return JsonResponse(consense_result, status=400)
     return JsonResponse(consense_result)
 
 def auto_pair_sequences(request):
