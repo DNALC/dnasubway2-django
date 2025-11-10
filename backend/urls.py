@@ -81,9 +81,13 @@ urlpatterns = [
     path("backend/user_id", user_id, name='user_id'),
     path("backend/upload_metabarcoding", upload_metabarcoding, name='upload_metabarcoding'),
     path("backend/upload_cyverse_metabarcoding", upload_cyverse_metabarcoding, name='upload_cyverse_metabarcoding'),
+    path("backend/upload_cyverse_metadata", upload_cyverse_metadata, name='upload_cyverse_metadata'),
     path("backend/upload_metadata", upload_metadata, name='upload_metadata'),
     path("backend/save_metadata", save_metadata, name='save_metadata'),
     path("backend/delete_metabarcoding", delete_metabarcoding_file, name='delete_metabarcoding'),
+    path("backend/delete_metadata", delete_metadata_file, name='delete_metadata'),
+    path("backend/rename_metabarcoding", rename_metabarcoding_file, name='rename_metabarcoding'),
+    path("backend/rename_metadata", rename_metadata_file, name='rename_metadata'),
     path("backend/metadata_content", get_metadata_content, name='metadata_content'),
     path("backend/demux", demux, name='demux'),
 ]

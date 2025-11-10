@@ -11,7 +11,7 @@ from ansi2html import Ansi2HTMLConverter
 from django.utils import timezone
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from .models import FastpJob, FastpResult, ProjectNanoporeSequence, PorechopResult, PorechopJob, MedakaJob, MedakaResult, DataFile, ProjectDataFile, BlastJob, BlastResult, Job, BlastData, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, JobPodFile, BasecallingJob, ProjectMetabarcodingFile
+from .models import FastpJob, FastpResult, ProjectNanoporeSequence, PorechopResult, PorechopJob, MedakaJob, MedakaResult, DataFile, ProjectDataFile, BlastJob, BlastResult, Job, BlastData, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, JobPodFile, BasecallingJob, ProjectMetabarcodingFile, BlastCache
 from .utils import get_service_token, generate_user_token, connect_to_tapis, ensure_instance_ready
 from django.conf import settings
 import tempfile
@@ -106,9 +106,11 @@ def run_porechop_task(project_nanopore_sequence_id, filtered_file_path):
         )
 
         # Update the job status to completed
-        job = PorechopJob.objects.get(project=project_nanopore_sequence.project, nanopore_sequence=project_nanopore_sequence.nanopore_sequence, status='pending')
-        job.status = 'completed'
-        job.save()
+        PorechopJob.objects.filter(
+          project=project_nanopore_sequence.project,
+          nanopore_sequence=project_nanopore_sequence.nanopore_sequence,
+          status='pending'
+        ).update(status='completed')
 
     except subprocess.CalledProcessError as e:
         # Update the job status to failed if something goes wrong
@@ -188,19 +190,23 @@ def run_medaka_task(project_nanopore_sequence_id):
 
 
         # Update the job status to completed
-        job = MedakaJob.objects.get(project=project_nanopore_sequence.project, nanopore_sequence=project_nanopore_sequence.nanopore_sequence, status='pending')
-        job.status = 'completed'
-        job.save()
+        MedakaJob.objects.filter(
+          project=project_nanopore_sequence.project,
+          nanopore_sequence=project_nanopore_sequence.nanopore_sequence,
+          status='pending'
+        ).update(status='completed')
 
     except subprocess.CalledProcessError as e:
         # Update the job status to failed if something goes wrong
         project_nanopore_sequence = ProjectNanoporeSequence.objects.get(id=project_nanopore_sequence_id)
-        job = MedakaJob.objects.get(project=project_nanopore_sequence.project, nanopore_sequence=project_nanopore_sequence.nanopore_sequence, status='pending')
-        job.status = 'failed'
-        job.save()
+        MedakaJob.objects.filter(
+          project=project_nanopore_sequence.project,
+          nanopore_sequence=project_nanopore_sequence.nanopore_sequence,
+          status='pending'
+        ).update(status='failed')
 
 @shared_task
-def run_blast_task(job_id, file_path, clade):
+def run_blast_task(job_id, read_hash, file_path, clade):
     try:
         # Fetch the associated Job instance
         job = Job.objects.get(id=job_id)
@@ -273,6 +279,34 @@ def run_blast_task(job_id, file_path, clade):
                 sequence=result["sequence"],
                 bitscore=result["bitscore"]
             )
+
+        same_cache_entries = BlastCache.objects.filter(db=db, read_hash=read_hash).exclude(job=job)
+
+        for cache in same_cache_entries:
+            # These entries point to sequences that were waiting (RUNNING or created before)
+            waiting_blast_job = cache.blast_job
+
+            # Copy results to them
+            cloned_blast_data = BlastData.objects.create(
+                blast_file=waiting_blast_job.data_file
+            )
+
+            for r in results:
+                BlastResult.objects.create(
+                    blast_data=cloned_blast_data,
+                    accession=r["accession"],
+                    details=r["details"],
+                    length=r["length"],
+                    bitscore=r["bitscore"],
+                    evalue=r["evalue"],
+                    mismatches=r["mismatches"],
+                    sequence=r["sequence"]
+                )
+
+            # Mark the job for the waiting sequence as finished too
+            waiting_job = waiting_blast_job.job
+            waiting_job.status = "FINISHED"
+            waiting_job.save()
 
         # Update job status to "FINISHED" if successful
         job.status = "FINISHED"

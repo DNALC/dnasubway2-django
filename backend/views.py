@@ -4716,3 +4716,193 @@ def upload_cyverse_metabarcoding(request):
         return JsonResponse({"error": "No new files created (all duplicates skipped)"}, status=400)
 
     return JsonResponse({"created_files": created_files}, status=200)
+
+def upload_cyverse_metadata(request):
+    """
+    Upload metadata files from CyVerse (tapis:// URIs), download them via JWT,
+    validate as QIIME2 metadata, and create MetadataFile and ProjectMetadataFile entries.
+    """
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    username = data.get('username')
+    jwt = data.get('jwt')
+    selectedFiles = data.get('selectedFiles', [])
+
+    if not selectedFiles:
+        return JsonResponse({'error': 'No files selected'}, status=400)
+
+    if not jwt:
+        return JsonResponse({'error': 'JWT is required for CyVerse access'}, status=401)
+
+    created_files = []
+    errors = []
+
+    for file_uri in selectedFiles:
+        # Expected format: tapis://data.cyverse.org/home/shared/.../filename.tsv
+        filename = file_uri.split("/")[-1]
+        if not (filename.endswith(".tsv") or filename.endswith(".txt")):
+            errors.append(f"Invalid file extension for {filename}")
+            continue
+
+        # Skip duplicates
+        if ProjectMetadataFile.objects.filter(
+            project=project, metadata_file__name=filename
+        ).exists():
+            continue
+
+        try:
+            file_content = download_cyverse_file(jwt, file_uri)
+            if not file_content:
+                errors.append(f"Failed to fetch {file_uri} from CyVerse")
+                continue
+
+            # Validate the metadata format before saving
+            file_like = io.BytesIO(file_content)
+            valid, warnings = validate_qiime2_metadata_format(file_like)
+            if not valid:
+                errors.append(f"Invalid metadata file: {filename}")
+                continue
+
+            # Create MetadataFile and link to project
+            metadata_file = MetadataFile.objects.create(
+                user=request.user,
+                name=filename,
+            )
+
+            metadata_file.file.save(
+                f"{metadata_file.id}.tsv",
+                ContentFile(file_content),
+                save=True
+            )
+
+            ProjectMetadataFile.objects.create(
+                project=project,
+                metadata_file=metadata_file
+            )
+
+            created_files.append(metadata_file.id)
+
+        except Exception as e:
+            errors.append(f"Error processing {filename}: {str(e)}")
+
+    if not created_files and errors:
+        return JsonResponse({"error": "No valid metadata files uploaded", "details": errors}, status=400)
+
+    if not created_files:
+        return JsonResponse({"error": "No new files created (all duplicates skipped)"}, status=400)
+
+    return JsonResponse({
+        "created_files": created_files,
+        "errors": errors if errors else None
+    }, status=200)
+
+def rename_metadata_file(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    file_id = data.get('metadata_file_id')
+    new_name = data.get('new_name')
+
+    if not file_id or not new_name:
+        return JsonResponse({'error': 'metadata_file_id and new_name are required'}, status=400)
+
+    try:
+        metadata_file = MetadataFile.objects.get(id=file_id)
+    except MetadataFile.DoesNotExist:
+        return JsonResponse({'error': 'Metadata file not found'}, status=404)
+
+    # Verify the file belongs to the project
+    if not ProjectMetadataFile.objects.filter(project=project, metadata_file=metadata_file).exists():
+        return JsonResponse({'error': 'Metadata file does not belong to this project'}, status=403)
+
+    # Prevent duplicate names in the same project
+    if ProjectMetadataFile.objects.filter(
+        project=project, metadata_file__name=new_name
+    ).exists():
+        return JsonResponse({'error': f"A file named '{new_name}' already exists in this project."}, status=400)
+
+    # Rename
+    metadata_file.name = new_name
+    metadata_file.save()
+
+    return JsonResponse({'success': f'Metadata file renamed to {new_name}'})
+
+def rename_metabarcoding_file(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    file_id = data.get('metabarcoding_file_id')
+    new_name = data.get('new_name')
+
+    if not file_id or not new_name:
+        return JsonResponse({'error': 'metabarcoding_file_id and new_name are required'}, status=400)
+
+    try:
+        metabarcoding_file = MetabarcodingFile.objects.get(id=file_id)
+    except MetabarcodingFile.DoesNotExist:
+        return JsonResponse({'error': 'Metabarcoding file not found'}, status=404)
+
+    # Verify it belongs to the current project
+    if not ProjectMetabarcodingFile.objects.filter(project=project, metabarcoding_file=metabarcoding_file).exists():
+        return JsonResponse({'error': 'Metabarcoding file does not belong to this project'}, status=403)
+
+    # Validate filename format
+    FILENAME_REGEX = re.compile(
+        rf'^[A-Za-z0-9\.-]+_[^_]+_L[0-9]{{3}}_R{"[12]" if project.read_type == "paired" else "1"}_001\.fastq\.gz$'
+    )
+    if not FILENAME_REGEX.match(new_name):
+        return JsonResponse({"error": "Invalid filename format."}, status=400)
+
+    # Prevent duplicate names within the project
+    if ProjectMetabarcodingFile.objects.filter(
+        project=project, metabarcoding_file__name=new_name
+    ).exists():
+        return JsonResponse({'error': f"A file named '{new_name}' already exists in this project."}, status=400)
+
+    # Rename
+    metabarcoding_file.name = new_name
+    metabarcoding_file.save()
+
+    return JsonResponse({'success': f'Metabarcoding file renamed to {new_name}'})
+
+def delete_metadata_file(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    file_id = data.get('metadata_file_id')
+
+    if not file_id:
+        return JsonResponse({'error': 'metadata_file_id is required'}, status=400)
+
+    try:
+        metadata_file = MetadataFile.objects.get(id=file_id)
+    except MetadataFile.DoesNotExist:
+        return JsonResponse({'error': 'Metadata file not found'}, status=404)
+
+    project_metadata_file = ProjectMetadataFile.objects.filter(project=project, metadata_file=metadata_file).first()
+
+    # Verify it belongs to this project
+    if not project_metadata_file:
+        return JsonResponse({'error': 'Metadata file does not belong to this project'}, status=403)
+
+    # If shared by multiple projects, remove only the link
+    if ProjectMetadataFile.objects.filter(metadata_file=metadata_file).count() < 2:
+        if metadata_file.file:
+            os.remove(metadata_file.file.name)
+        metadata_file.delete()
+
+    project_metadata_file.delete()
+    return JsonResponse({'success': 'Metadata file removed successfully'})

@@ -699,3 +699,10 @@ class NanoporeSequenceFolder(models.Model):
 
     class Meta:
         unique_together = ('usernanoporesequence', 'datafolder')
+
+class BlastCache(models.Model):
+    db = models.CharField(max_length=255)  # e.g., path or name of BLAST DB used
+    read_hash = models.CharField(max_length=64, db_index=True)  # hash of DataFile.reads
+    job = models.ForeignKey('Job', on_delete=models.CASCADE)
+    blast_job = models.ForeignKey('BlastJob', on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)

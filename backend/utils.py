@@ -4,6 +4,7 @@ from Bio.Seq import Seq
 from io import BytesIO, StringIO, TextIOWrapper
 import csv
 import gzip
+import hashlib
 import json
 from urllib.request import urlopen
 import os
@@ -14,7 +15,7 @@ import tempfile
 import time
 import uuid
 from tapipy.tapis import Tapis
-from .models import Job, DataFile, TrimJob, ConsensusJob, ConsensusData, BlastJob, BlastData, BlastResult, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, Project, ProjectDataFile, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData
+from .models import Job, DataFile, TrimJob, ConsensusJob, ConsensusData, BlastJob, BlastData, BlastResult, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, Project, ProjectDataFile, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, BlastCache
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 tapis = Tapis(base_url='https://cyverse.tapis.io', username=settings.TAPIS_CYVERSE_USERNAME, password=settings.TAPIS_CYVERSE_PASSWORD)
@@ -1139,6 +1140,67 @@ def sequence_trim(user, hostname, dataFile, left_trim, right_trim, projectId):
 
 def local_blast(user, hostname, dataFile, clade, projectId):
     from .tasks import run_blast_task
+    db = settings.SPECIES_MAP.get(clade, settings.SPECIES_MAP["default"])
+    read_hash = hashlib.sha256(dataFile.reads.encode('utf-8')).hexdigest()
+    existing_cache = BlastCache.objects.filter(db=db, read_hash=read_hash).first()
+    if existing_cache:
+        job = existing_cache.job
+        blast_job = existing_cache.blast_job
+
+        if job.status == "RUNNING":
+            job_uuid = fake_tapis_job(user, "blastn_app", None, projectId)
+            waiting_job = Job.objects.get(uuid=job_uuid)
+
+            waiting_blast_job = BlastJob.objects.create(
+                job=waiting_job,
+                data_file=dataFile,
+                clade=clade or 'default'
+            )
+
+            # Add this to cache (so run_blast_task knows to clone results later)
+            BlastCache.objects.create(
+                db=db,
+                read_hash=read_hash,
+                job=waiting_job,
+                blast_job=waiting_blast_job
+            )
+
+            return {
+                "status": "waiting",
+                "message": "BLAST already running for this sequence and database; waiting for results."
+            }
+
+        elif job.status == "FINISHED":
+            # Clone results from that finished job
+            existing_blast_data = BlastData.objects.filter(blast_file=blast_job.data_file).first()
+            if existing_blast_data:
+                new_job_uuid = fake_tapis_job(user, "blastn_app", None, projectId)
+                new_job = Job.objects.get(uuid=new_job_uuid)
+                new_blast_job = BlastJob.objects.create(
+                    job=new_job,
+                    data_file=dataFile,
+                    clade=clade or 'default'
+                )
+                new_blast_data = BlastData.objects.create(blast_file=dataFile)
+                for r in BlastResult.objects.filter(blast_data=existing_blast_data):
+                    BlastResult.objects.create(
+                        blast_data=new_blast_data,
+                        accession=r.accession,
+                        details=r.details,
+                        length=r.length,
+                        evalue=r.evalue,
+                        mismatches=r.mismatches,
+                        sequence=r.sequence,
+                        bitscore=r.bitscore
+                    )
+                return {
+                    "status": "success",
+                    "message": "Results copied from cached BLAST job."
+                }
+        elif job.status == "FAILED":
+            # Proceed to re-run since the cached job failed
+            pass
+
     associated_file = dataFile.associated_fasta
     file_path = associated_file.name
     appId = "blastn_app"
@@ -1146,7 +1208,8 @@ def local_blast(user, hostname, dataFile, clade, projectId):
     if job_uuid:
         job = Job.objects.get(uuid=job_uuid)
         blast_job = BlastJob.objects.create(job=job, data_file = dataFile, clade = clade if clade else 'default')
-        run_blast_task.delay(job.id, file_path, clade)
+        BlastCache.objects.create(db=db, read_hash=read_hash, job=job, blast_job=blast_job)
+        run_blast_task.delay(job.id, read_hash, file_path, clade)
         return {
             "status": "success",
             "message": "Blast job running."
