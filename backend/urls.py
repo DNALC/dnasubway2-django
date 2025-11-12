@@ -88,8 +88,11 @@ urlpatterns = [
     path("backend/delete_metadata", delete_metadata_file, name='delete_metadata'),
     path("backend/rename_metabarcoding", rename_metabarcoding_file, name='rename_metabarcoding'),
     path("backend/rename_metadata", rename_metadata_file, name='rename_metadata'),
+    path("backend/validate_metadata", validate_metadata, name='validate_metadata'),
+    path("backend/create_metadata", create_metadata_from_scratch, name='create_metadata'),
     path("backend/metadata_content", get_metadata_content, name='metadata_content'),
     path("backend/demux", demux, name='demux'),
+    path("backend/dada2", dada2, name='dada2'),
 ]
 
 

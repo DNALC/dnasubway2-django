@@ -25,11 +25,11 @@ import tempfile
 import time
 import uuid
 #from django.shortcuts import render
-from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail
-from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file
+from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail
+from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file, extract_qiime2_metadata_sample_ids
 import gzip
 import shutil
-from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task  # Celery task
+from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task  # Celery task
 from Bio import SeqIO
 import base64
 from .models import Author, MuscleTrim
@@ -816,6 +816,7 @@ def user_projects(request):
             'description': project.description,
             'sequencing_type': project.sequencing_type,
             'project_type': project.project_type,
+            'read_type': project.read_type,
             'created_date': project.created.strftime('%Y-%m-%d'),  # Format date as YYYY-MM-DD
             'public': project.public
         }
@@ -1075,6 +1076,7 @@ def project_info(request):
 
     metabarcoding = {}
     demux = {}
+    dada2 = {}
     metadata = {}
     if project.project_type == "UB":
         project_metabarcoding_files = ProjectMetabarcodingFile.objects.filter(project=project).select_related('metabarcoding_file').order_by('metabarcoding_file__name')
@@ -1084,7 +1086,7 @@ def project_info(request):
         project_metadata_files = ProjectMetadataFile.objects.filter(project=project).select_related('metadata_file').order_by('metadata_file__name')
         for project_metadata_file in project_metadata_files:
             metadata_file = project_metadata_file.metadata_file
-            metadata[metadata_file.id] = metadata_file.name
+            metadata[metadata_file.id] = [metadata_file.name, metadata_file.validated]
         demux_job = (
             Job.objects.filter(
                 project=project,
@@ -1093,6 +1095,14 @@ def project_info(request):
             .order_by("-id")
             .first()
         )
+        dada2_jobs = (
+            Job.objects.filter(
+                project=project,
+                appId=settings.QIIME2_DADA2_APP_ID,
+            )
+            .order_by("-id")
+        )
+        dada2 = {"running": False, "jobs": []}
         if demux_job:
             running = demux_job.status not in ["FINISHED", "CANCELLED", "FAILED"]
 
@@ -1110,7 +1120,43 @@ def project_info(request):
             if summary_path:
                 demux["results"] = {}
                 demux["results"]["summary"] = summary_path
+        if dada2_jobs.exists():
+            # A DADA2 workflow is "running" if any job is not finished/cancelled/failed
+            dada2["running"] = any(job.status not in ["FINISHED", "CANCELLED", "FAILED"] for job in dada2_jobs)
 
+            for job in dada2_jobs:
+                job_data = {
+                    "id": job.id,
+                    "status": job.status,
+                }
+
+                # DADA2 parameters from Dada2JobDetail
+                if hasattr(job, "dada2_detail"):
+                    detail = job.dada2_detail
+                    job_data.update({
+                        "metadata_file_id": detail.metadata_file.id,
+                        "trimLeft": detail.trimLeft,
+                        "truncLen": detail.truncLen,
+                        "trimLeftF": detail.trimLeftF,
+                        "truncLenF": detail.truncLenF,
+                        "trimLeftR": detail.trimLeftR,
+                        "truncLenR": detail.truncLenR,
+                    })
+
+                # DADA2 results
+                results = {}
+                if hasattr(job, "dada2_result"):
+                    result = job.dada2_result
+                    if result.trim_table_qzv:
+                        results["table"] = result.trim_table_qzv.name
+                    if result.stats_qzv:
+                        results["stats"] = result.stats_qzv.name
+                    if result.rep_seqs_qza:
+                        results["repseqs"] = result.rep_seqs_qzv.name
+                if results:
+                    job_data["results"] = results
+
+                dada2["jobs"].append(job_data)
 
     project_data = {
         'id': project.id,
@@ -1138,6 +1184,7 @@ def project_info(request):
         'metadata': metadata,
         'metabarcoding': metabarcoding,
         'demux': demux,
+        'dada2': dada2,
     }
     return JsonResponse({'success': 'Project retrieved', 'project': project_data})
 
@@ -1157,6 +1204,7 @@ def public_projects(request):
             'title': project.title,
             'description': project.description,
             'sequencing_type': project.sequencing_type,
+            'read_type': project.read_type,
             'project_type': project.project_type,
             'created_date': project.created.strftime('%Y-%m-%d'),  # Format date as YYYY-MM-DD
             'public': True,
@@ -3980,6 +4028,11 @@ def upload_metabarcoding(request):
             project=project,
             metabarcoding_file=metabarcoding_file
         )
+        metadata_files = MetadataFile.objects.filter(
+            project_links__project=project
+        )
+
+        metadata_files.update(validated=False)
 
         return JsonResponse({"id": metabarcoding_file.id})
     except Exception as e:
@@ -4014,6 +4067,11 @@ def delete_metabarcoding_file(request):
             os.remove(metabarcoding_file.file.name)
         metabarcoding_file.delete()
     project_metabarcoding_file.delete()
+    metadata_files = MetadataFile.objects.filter(
+        project_links__project=project
+    )
+
+    metadata_files.update(validated=False)
     return JsonResponse({'success': 'Metabarcoding file removed successfully'})
 
 
@@ -4104,6 +4162,9 @@ def save_metadata(request):
 
     storage.delete(path)
     storage.save(path, ContentFile(file_contents))
+
+    metadata_file.validated = False
+    metadata_file.save()
 
     return JsonResponse({'status': 'success'})
 
@@ -4646,6 +4707,113 @@ def demux(request):
     submit_demux_job_task.delay(job.id, randSamples)
     return JsonResponse({'job_uuid': job.uuid, 'status': job.status})
 
+def dada2(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    project = parsed_data['project']
+    data = parsed_data['data']
+    user = request.user
+
+    # Get parameters (default to 0)
+    trimLeft = int(data.get("trimLeft", 0))
+    truncLen = int(data.get("truncLen", 0))
+    trimLeftF = int(data.get("trimLeftF", 0))
+    trimLeftR = int(data.get("trimLeftR", 0))
+    truncLenF = int(data.get("truncLenF", 0))
+    truncLenR = int(data.get("truncLenR", 0))
+    file_id = data.get('metadata_file_id')
+
+    if not file_id:
+        return JsonResponse({'error': 'metadata_file_id is required'}, status=400)
+
+    try:
+        metadata_file = MetadataFile.objects.get(id=file_id)
+    except MetadataFile.DoesNotExist:
+        return JsonResponse({'error': 'Metadata file not found'}, status=404)
+
+    if not metadata_file.validated:
+        return JsonResponse({'error': 'Metadata file not validated'}, status=400)
+
+    paired_flag = '1' if getattr(project, 'read_type', 'single') == 'paired' else '0'
+
+    # Ensure there's a finished DemuxResult for this project
+    finished_demux_jobs = Job.objects.filter(
+        project=project,
+        appId=settings.QIIME2_DEMUX_APP_ID,
+        status='FINISHED'
+    )
+
+    if not finished_demux_jobs.exists():
+        return JsonResponse({'error': 'No completed demux job found for this project.'}, status=400)
+
+    demux_result = DemuxResult.objects.filter(job__in=finished_demux_jobs).first()
+    if not demux_result or not demux_result.demux_qza:
+        return JsonResponse({'error': 'Demux QZA file not found.'}, status=400)
+
+    # Prevent duplicate active/queued DADA2 jobs
+    active_dada2_exists = Job.objects.filter(
+        user=user,
+        appId=settings.QIIME2_DADA2_APP_ID
+    ).exclude(status__in=['FINISHED', 'FAILED', 'STOPPED', 'CANCELLED', 'FAILED_BOOT']).exists()
+
+    if active_dada2_exists:
+        return JsonResponse({
+            'error': 'You already have an active or queued DADA2 job. Please wait for it to finish.'
+        }, status=400)
+    existing_detail = (
+        Dada2JobDetail.objects.filter(
+            job__status='FINISHED',
+            job__project=project,
+            job__appId=settings.QIIME2_DADA2_APP_ID,
+            metadata_file=metadata_file,
+            paired=(paired_flag == '1'),
+            trimLeft=trimLeft,
+            truncLen=truncLen,
+            trimLeftF=trimLeftF,
+            trimLeftR=trimLeftR,
+            truncLenF=truncLenF,
+            truncLenR=truncLenR
+        )
+        .select_related('job')
+        .order_by('-job__id')
+        .first()
+    )
+    if existing_detail:
+        return JsonResponse({
+            'error': f"A successful DADA2 job with these parameters already exists for this project: trim{existing_detail.job.id}",
+        }, status=400)
+
+    # Create Job placeholder
+    job = placeholder_tapis_job(user, settings.QIIME2_DADA2_APP_ID)
+    job.project = project
+    job.save()
+
+    # Save job details
+    Dada2JobDetail.objects.create(
+        job=job,
+        metadata_file=metadata_file,
+        paired=(paired_flag == '1'),
+        trimLeft=trimLeft,
+        truncLen=truncLen,
+        trimLeftF=trimLeftF,
+        trimLeftR=trimLeftR,
+        truncLenF=truncLenF,
+        truncLenR=truncLenR
+    )
+
+    # Submit async task
+    submit_dada2_job_task.delay(
+        job.id,
+        demux_result.demux_qza.name,
+        metadata_file.file.name,
+        paired_flag,
+        trimLeft, truncLen, trimLeftF, trimLeftR, truncLenF, truncLenR
+    )
+
+    return JsonResponse({'job_uuid': job.uuid, 'status': job.status})
+
 def upload_cyverse_metabarcoding(request):
     parsed_data = parse_user_project_data(request)
     if 'error' in parsed_data:
@@ -4714,6 +4882,12 @@ def upload_cyverse_metabarcoding(request):
 
     if not created_files:
         return JsonResponse({"error": "No new files created (all duplicates skipped)"}, status=400)
+
+    metadata_files = MetadataFile.objects.filter(
+        project_links__project=project
+    )
+
+    metadata_files.update(validated=False)
 
     return JsonResponse({"created_files": created_files}, status=200)
 
@@ -4872,6 +5046,11 @@ def rename_metabarcoding_file(request):
     # Rename
     metabarcoding_file.name = new_name
     metabarcoding_file.save()
+    metadata_files = MetadataFile.objects.filter(
+        project_links__project=project
+    )
+
+    metadata_files.update(validated=False)
 
     return JsonResponse({'success': f'Metabarcoding file renamed to {new_name}'})
 
@@ -4906,3 +5085,169 @@ def delete_metadata_file(request):
 
     project_metadata_file.delete()
     return JsonResponse({'success': 'Metadata file removed successfully'})
+
+def validate_metadata(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    project = parsed_data['project']
+    data = parsed_data['data']
+    file_id = data.get('metadata_file_id')
+
+    if not file_id:
+        return JsonResponse({'error': 'metadata_file_id is required'}, status=400)
+
+    try:
+        metadata_file = MetadataFile.objects.get(id=file_id)
+    except MetadataFile.DoesNotExist:
+        return JsonResponse({'error': 'Metadata file not found'}, status=404)
+
+    valid, errors = validate_qiime2_metadata_format(metadata_file.file)
+    if not valid:
+        return JsonResponse({"error": "Invalid metadata file", "warnings": errors}, status=400)
+
+    metabarcoding_files = ProjectMetabarcodingFile.objects.filter(project=project).select_related('metabarcoding_file')
+    if not metabarcoding_files.exists():
+        return JsonResponse({'error': 'No metabarcoding files found for this project.'}, status=400)
+
+    try:
+        sample_ids = extract_qiime2_metadata_sample_ids(metadata_file)
+    except ValueError as e:
+        return JsonResponse({'error': str(e)}, status=400)
+
+    FILENAME_REGEX = re.compile(
+        rf'^[A-Za-z0-9\.-]+_[^_]+_L[0-9]{{3}}_R{"[12]" if project.read_type == "paired" else "1"}_001\.fastq\.gz$'
+    )
+
+    invalid_filenames = []
+    file_sample_map = {}
+
+    for pmf in metabarcoding_files:
+        fname = pmf.metabarcoding_file.name.split('/')[-1]
+
+        if not FILENAME_REGEX.match(fname):
+            invalid_filenames.append(fname)
+            continue
+
+        sample_id = fname.split('_')[0]
+        file_sample_map.setdefault(sample_id, []).append(fname)
+
+    if invalid_filenames:
+        return JsonResponse({
+            "error": "Invalid metabarcoding filenames detected.",
+            "invalid_filenames": invalid_filenames,
+        }, status=400)
+
+    missing_files = []
+    extraneous_files = []
+
+    for sample_id in sample_ids:
+        files_for_sample = file_sample_map.get(sample_id, [])
+        if not files_for_sample:
+            missing_files.append(f"{sample_id}: no FASTQ files found")
+            continue
+
+        if project.read_type == "paired":
+            has_r1 = any("_R1_" in f for f in files_for_sample)
+            has_r2 = any("_R2_" in f for f in files_for_sample)
+            if not (has_r1 and has_r2):
+                missing = []
+                if not has_r1:
+                    missing.append("R1")
+                if not has_r2:
+                    missing.append("R2")
+                missing_files.append(f"{sample_id}: missing {', '.join(missing)} file(s)")
+        else:
+            if not any("_R1_" in f for f in files_for_sample):
+                missing_files.append(f"{sample_id}: missing R1 file")
+
+    for sample_id in file_sample_map.keys():
+        if sample_id not in sample_ids:
+            files_str = ", ".join(file_sample_map[sample_id])
+            if len(files_for_sample) > 1:
+                extraneous_files.append(f"Files {files_str} not found in metadata")
+            else:
+                extraneous_files.append(f"File {files_str} not found in metadata")
+
+    expected_count = len(sample_ids) * (2 if project.read_type == "paired" else 1)
+    actual_count = sum(len(v) for v in file_sample_map.values())
+
+    if missing_files or extraneous_files or actual_count != expected_count:
+        return JsonResponse({
+            "error": "Metadata and metabarcoding file mismatch detected.",
+            "missing_files": missing_files or None,
+            "extraneous_files": extraneous_files or None,
+            "expected_file_count": expected_count,
+            "actual_file_count": actual_count,
+        }, status=400)
+
+    metadata_file.validated = True
+    metadata_file.save()
+    return JsonResponse({"success": "Metadata validation passed."})
+
+def create_metadata_from_scratch(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    user = request.user
+    project = parsed_data['project']
+
+    metabarcoding_files = (
+        ProjectMetabarcodingFile.objects
+        .filter(project=project)
+        .select_related('metabarcoding_file')
+    )
+
+    if not metabarcoding_files.exists():
+        return JsonResponse({'error': 'No metabarcoding files found for this project.'}, status=400)
+
+    FILENAME_REGEX = re.compile(
+        rf'^([A-Za-z0-9\.-]+)_[^_]+_L[0-9]{{3}}_R{"[12]" if project.read_type == "paired" else "1"}_001\.fastq\.gz$'
+    )
+
+    # Collect unique sample names
+    sample_ids = set()
+    for pmf in metabarcoding_files:
+        fname = pmf.metabarcoding_file.name.split('/')[-1]
+        match = FILENAME_REGEX.match(fname)
+        if match:
+            # Extract the part before the first underscore
+            prefix = match.group(1)
+            sample_ids.add(prefix)
+
+    # Choose a unique filename for the metadata
+    existing_names = ProjectMetadataFile.objects.filter(project=project).values_list('metadata_file__name', flat=True)
+    base_filename = "metadata.tsv"
+    filename = base_filename
+    counter = 1
+    while filename in existing_names:
+        filename = f"metadata_{counter}.tsv"
+        counter += 1
+
+    # Build metadata content
+    output = io.StringIO()
+    output.write("#SampleID\tDescription\n")
+    for sid in sorted(sample_ids):
+        output.write(f"{sid}\t{sid}\n")
+
+    # Create and save metadata file
+    metadata_file = MetadataFile.objects.create(
+        user=user,
+        validated = True,
+        name=filename,
+    )
+    metadata_file.file.save(
+        f"{metadata_file.id}.tsv",
+        ContentFile(output.getvalue()),
+        save=True
+    )
+
+    # Link to project
+    ProjectMetadataFile.objects.create(
+        project=project,
+        metadata_file=metadata_file
+    )
+
+    return JsonResponse({"id": metadata_file.id})

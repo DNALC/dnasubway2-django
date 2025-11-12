@@ -221,6 +221,28 @@ class MetabarcodingFile(models.Model):
     def __str__(self):
         return self.name
 
+class MetadataFile(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    file = models.FileField(upload_to="metadata_files/")
+    validated = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+class ProjectMetadataFile(models.Model):
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="metadata_files")
+    metadata_file = models.ForeignKey(MetadataFile, on_delete=models.CASCADE, related_name="project_links")
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("project", "metadata_file")
+
+    def __str__(self):
+        return f"{self.project.name} → {self.metadata_file.name}"
+
+
 class DemuxJobInputFile(models.Model):
     job = models.ForeignKey("Job", on_delete=models.CASCADE, related_name="input_files")
     file = models.ForeignKey(MetabarcodingFile, on_delete=models.CASCADE)
@@ -243,6 +265,34 @@ class DemuxResult(models.Model):
     def __str__(self):
         return f"Results for Job {self.job.uuid}"
 
+class Dada2JobDetail(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="dada2_detail")
+    metadata_file = models.ForeignKey(MetadataFile, on_delete=models.CASCADE, related_name="dada2_details")
+    paired = models.BooleanField(default=False)
+    trimLeft = models.PositiveIntegerField(default=0)
+    truncLen = models.PositiveIntegerField(default=0)
+    trimLeftF = models.PositiveIntegerField(default=0)
+    trimLeftR = models.PositiveIntegerField(default=0)
+    truncLenF = models.PositiveIntegerField(default=0)
+    truncLenR = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return f"DADA2 details for Job {self.job.uuid}"
+
+
+class Dada2Result(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="dada2_result")
+    rooted_tree_qza = models.FileField(upload_to="dada2_files/", blank=True, null=True)
+    trim_table_qza = models.FileField(upload_to="dada2_files/", blank=True, null=True)
+    rep_seqs_qza = models.FileField(upload_to="dada2_files/", blank=True, null=True)
+    stats_qzv = models.FileField(upload_to="dada2_files/", blank=True, null=True)
+    rep_seqs_qzv = models.FileField(upload_to="dada2_files/", blank=True, null=True)
+    trim_table_qzv = models.FileField(upload_to="dada2_files/", blank=True, null=True)
+    log_file = models.FileField(upload_to="dada2_files/", blank=True, null=True)
+
+    def __str__(self):
+        return f"DADA2 results for Job {self.job.uuid}"
+
 class ProjectMetabarcodingFile(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="metabarcoding_files")
     metabarcoding_file = models.ForeignKey(MetabarcodingFile, on_delete=models.CASCADE, related_name="project_links")
@@ -253,26 +303,6 @@ class ProjectMetabarcodingFile(models.Model):
 
     def __str__(self):
         return f"{self.project.name} → {self.metabarcoding_file.name}"
-
-class MetadataFile(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    name = models.CharField(max_length=255)
-    file = models.FileField(upload_to="metadata_files/")
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return self.name
-
-class ProjectMetadataFile(models.Model):
-    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="metadata_files")
-    metadata_file = models.ForeignKey(MetadataFile, on_delete=models.CASCADE, related_name="project_links")
-    added_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        unique_together = ("project", "metadata_file")
-
-    def __str__(self):
-        return f"{self.project.name} → {self.metadata_file.name}"
 
 class PodFile(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)

@@ -1028,3 +1028,61 @@ def submit_demux_job_task(job_id, rand_samples='1000'):
     except Exception as e:
         job.status = 'FAILED'
         job.save()
+
+@shared_task
+def submit_dada2_job_task(job_id, demux_qza_path, metadata_path, paired_flag,
+                           trimLeft, truncLen, trimLeftF, trimLeftR, truncLenF, truncLenR):
+    job = Job.objects.get(id=job_id)
+    project = job.project
+    user = job.user
+
+    demux_filename = os.path.basename(demux_qza_path)
+    source_url = settings.REACT_URL + "backend/" + demux_qza_path
+    metadata_source_url = settings.REACT_URL + "backend/" + metadata_path
+
+    fileInputs = [{
+        "name": demux_filename,
+        "sourceUrl": source_url,
+        "targetPath": "imported-demux.qza"
+    },
+    {
+        "name": "metadata.tsv",
+        "sourceUrl": metadata_source_url,
+        "targetPath": "metadata.tsv"
+    }]
+
+    job_params = {
+        "name": "dada2",
+        "appId": settings.QIIME2_DADA2_APP_ID,
+        "appVersion": settings.QIIME2_DADA2_APP_VERSION,
+        "fileInputs": fileInputs,
+        "parameterSet": {
+            "envVariables": [
+                {"key": "DEBUG", "value": "1"},
+                {"key": "files", "value": "imported-demux.qza"},
+                {"key": "jobName", "value": "trimming"},
+                {"key": "metadata", "value": "metadata.tsv"},
+                {"key": "paired", "value": paired_flag},
+                {"key": "trimLeft", "value": str(trimLeft)},
+                {"key": "trimLeftF", "value": str(trimLeftF)},
+                {"key": "trimLeftR", "value": str(trimLeftR)},
+                {"key": "truncLen", "value": str(truncLen)},
+                {"key": "truncLenF", "value": str(truncLenF)},
+                {"key": "truncLenR", "value": str(truncLenR)}
+            ]
+        }
+    }
+
+    try:
+        get_service_token()
+        user_token = generate_user_token(user.username)
+        t = connect_to_tapis(user.username, user_token)
+        tapis_job_response = t.jobs.submitJob(**job_params)
+
+        job.uuid = tapis_job_response.get('uuid')
+        job.status = tapis_job_response.get('status', 'PENDING')
+        job.save()
+
+    except Exception as e:
+        job.status = 'FAILED'
+        job.save()

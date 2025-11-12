@@ -443,6 +443,52 @@ def validate_qiime2_metadata_format(file_obj):
     file_obj.seek(0)
     return True, None
 
+def extract_qiime2_metadata_sample_ids(metadata_file):
+    """
+    Reads a QIIME2 metadata file and extracts all valid sample IDs
+    based on the first column after identifying the proper header row.
+    Returns a set of sample IDs or raises ValueError on error.
+    """
+    metadata_file.file.seek(0)
+    text_stream = TextIOWrapper(metadata_file.file, encoding="utf-8")
+    lines = text_stream.read().splitlines()
+    text_stream.detach()
+    metadata_file.file.seek(0)
+
+    header_idx = None
+    header_line = None
+
+    # Detect header row
+    for i, line in enumerate(lines):
+        line_strip = line.strip()
+        if not line_strip or line_strip.startswith('#q2:types'):
+            continue
+        headers = [h.strip() for h in line_strip.split('\t')]
+        if headers and (
+            headers[0] in CASE_SENSITIVE_HEADERS or
+            headers[0].lower() in {h.lower() for h in CASE_INSENSITIVE_HEADERS}
+        ):
+            header_idx = i
+            header_line = headers
+            break
+
+    if header_idx is None:
+        raise ValueError("No valid header row with a QIIME2 ID column found.")
+
+    # Extract sample IDs
+    sample_ids = set()
+    for line in lines[header_idx + 1:]:
+        if not line.strip() or line.startswith('#'):
+            continue
+        sample_id = line.split('\t', 1)[0].strip()
+        if sample_id:
+            sample_ids.add(sample_id)
+
+    if not sample_ids:
+        raise ValueError("No valid sample IDs found in metadata file.")
+
+    return sample_ids
+
 def base10_to_base36(num):
     if num < 0:
         raise ValueError("Only non-negative integers are supported")

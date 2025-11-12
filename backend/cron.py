@@ -1,7 +1,7 @@
 from django.conf import settings
 import os
 import re
-from .models import BasecallingJob, PodFile, NanoporeSequence, UserNanoporeSequence, JobPodFile, DataFolder, NanoporeSequenceFolder, DemuxResult, Job
+from .models import BasecallingJob, PodFile, NanoporeSequence, UserNanoporeSequence, JobPodFile, DataFolder, NanoporeSequenceFolder, DemuxResult, Dada2Result, Job
 from .utils import (
     shelve_instance,
     ensure_instance_ready,
@@ -29,8 +29,8 @@ def get_job_status(tapis, job_uuid):
         tprint("Error retrieving job details:", e)
         return None
 
-def check_metabarcoding_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
-    tprint("Checking metabarcoding job " + job_uuid)
+def check_demux_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
+    tprint("Checking demux job " + job_uuid)
     status = get_job_status(tapis, job_uuid)
     if not status:
         return
@@ -94,7 +94,135 @@ def check_metabarcoding_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
             return
     job_obj.status = current_status
     job_obj.save(update_fields=["status"])
-    tprint("Metabarcoding job status:", current_status)
+    tprint("Demux job status:", current_status)
+
+def check_dada2_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
+    tprint("Checking dada2 job " + job_uuid)
+    status = get_job_status(tapis, job_uuid)
+    if not status:
+        return
+    current_status = status.get("status")
+    tprint("Current status: " + current_status)
+    user = job_obj.user
+
+    if current_status == "FINISHED":
+        job_obj.status = "FINISHING"
+        job_obj.save(update_fields=["status"])
+        # List files from Tapis job archive
+        all_files = list_all_files(tapis, job_uuid)
+
+        rooted_tree_qza_file = None
+        trim_table_qza_file = None
+        rep_seqs_qza_file = None
+        stats_qzv_file = None
+        rep_seqs_qzv_file = None
+        trim_table_qzv_file = None
+        rooted_tree_qza_archived = False
+        trim_table_qza_archived = False
+        rep_seqs_qza_archived = False
+        stats_qzv_archived = False
+        rep_seqs_qzv_archived = False
+        trim_table_qzv_archived = False
+
+        for file_path in all_files:
+            if file_path.endswith("rooted-tree.qza"):
+                rooted_tree_qza_file = file_path
+            elif file_path.endswith("table-trimming.qza"):
+                trim_table_qza_file = file_path
+            elif file_path.endswith("rep-seqs.qza"):
+                rep_seqs_qza_file = file_path
+            elif file_path.endswith("stats.qzv"):
+                stats_qzv_file = file_path
+            elif file_path.endswith("rep-seqs.qzv"):
+                rep_seqs_qzv_file = file_path
+            elif file_path.endswith("table-trimming.qzv"):
+                trim_table_qzv_file = file_path
+        if any([rooted_tree_qza_file, trim_table_qza_file, rep_seqs_qza_file, stats_qzv_file, rep_seqs_qzv_file, trim_table_qzv_file]):
+            dada2_result, _ = Dada2Result.objects.get_or_create(job=job_obj)
+            def download_and_save(remote_path, field_name, filename):
+                content = download_tapis_file("js2_dnasubway2", user_token, remote_path)
+                if content:
+                    getattr(dada2_result, field_name).save(
+                        filename,
+                        ContentFile(content),
+                        save=False
+                    )
+                    return True
+                return False
+
+            if rooted_tree_qza_file:
+                tprint(f"GET {rooted_tree_qza_file}")
+                rooted_tree_qza_archived = download_and_save(
+                    f"scratch/{user.username}/job-{job_uuid}/output/rooted-tree.qza",
+                    "rooted_tree_qza",
+                    f"{dada2_result.id}-rooted-tree.qza"
+                )
+
+            if trim_table_qza_file:
+                tprint(f"GET {trim_table_qza_file}")
+                trim_table_qza_archived = download_and_save(
+                    f"scratch/{user.username}/job-{job_uuid}/output/table-trimming.qza",
+                    "trim_table_qza",
+                    f"{dada2_result.id}-table-trimming.qza"
+                )
+
+            if rep_seqs_qza_file:
+                tprint(f"GET {rep_seqs_qza_file}")
+                rep_seqs_qza_archived = download_and_save(
+                    f"scratch/{user.username}/job-{job_uuid}/output/rep-seqs.qza",
+                    "rep_seqs_qza",
+                    f"{dada2_result.id}-rep-seqs.qza"
+                )
+
+            if stats_qzv_file:
+                tprint(f"GET {stats_qzv_file}")
+                stats_qzv_archived = download_and_save(
+                    f"scratch/{user.username}/job-{job_uuid}/output/stats.qzv",
+                    "stats_qzv",
+                    f"{dada2_result.id}-stats.qzv"
+                )
+
+            if rep_seqs_qzv_file:
+                tprint(f"GET {rep_seqs_qzv_file}")
+                rep_seqs_qzv_archived = download_and_save(
+                    f"scratch/{user.username}/job-{job_uuid}/output/rep-seqs.qzv",
+                    "rep_seqs_qzv",
+                    f"{dada2_result.id}-rep-seqs.qzv"
+                )
+
+            if trim_table_qzv_file:
+                tprint(f"GET {trim_table_qzv_file}")
+                trim_table_qzv_archived = download_and_save(
+                    f"scratch/{user.username}/job-{job_uuid}/output/table-trimming.qzv",
+                    "trim_table_qzv",
+                    f"{dada2_result.id}-table-trimming.qzv"
+                )
+
+            dada2_result.save()
+
+            # cleanup remote job dir
+            try:
+                admin_tapis.files.delete(
+                    systemId="js2_dnasubway2",
+                    path=f"scratch/{user.username}/job-{job_uuid}/",
+                )
+                tprint(f"Deleted /scratch/{user.username}/job-{job_uuid}/ from Tapis")
+            except Exception as e:
+                tprint(f"Failed to delete job files for {job_uuid}: {e}")
+        if not all([
+            rooted_tree_qza_archived,
+            trim_table_qza_archived,
+            rep_seqs_qza_archived,
+            stats_qzv_archived,
+            rep_seqs_qzv_archived,
+            trim_table_qzv_archived
+        ]):
+            job_obj.status = "FAILED"
+            job_obj.save(update_fields=["status"])
+            return
+    job_obj.status = current_status
+    job_obj.save(update_fields=["status"])
+    tprint("Dada2 job status:", current_status)
 
 def check_job(tapis, job_uuid, job_obj, admin_tapis):
     tprint("Checking job " + job_uuid)
@@ -176,18 +304,35 @@ def poll_active_jobs():
         .filter(appId=settings.QIIME2_DEMUX_APP_ID)
         .exclude(status__in=['FINISHED', 'CANCELLED', 'FAILED', 'STOPPED', 'STARTING', 'FAILED_BOOT', 'FINISHING'])
     )
+    dada2_jobs = (
+        Job.objects
+        .filter(appId=settings.QIIME2_DADA2_APP_ID)
+        .exclude(status__in=['FINISHED', 'CANCELLED', 'FAILED', 'STOPPED', 'STARTING', 'FAILED_BOOT', 'FINISHING'])
+    )
     if demux_jobs.exists():
         usernames = set(j.user.username for j in demux_jobs)
 
         for username in usernames:
             tprint("Checking demux jobs for user " + username)
-            user_jobs = [j for j in demux_jobs if j.user.username == username]
+            user_demux_jobs = [j for j in demux_jobs if j.user.username == username]
 
             user_token = generate_user_token(username)
             tapis = connect_to_tapis(username, user_token)
 
-            for job in user_jobs:
-                check_metabarcoding_job(tapis, user_token, job.uuid, job, admin_tapis)
+            for job in user_demux_jobs:
+                check_demux_job(tapis, user_token, job.uuid, job, admin_tapis)
+    if dada2_jobs.exists():
+        usernames = set(j.user.username for j in dada2_jobs)
+
+        for username in usernames:
+            tprint("Checking dada2 jobs for user " + username)
+            user_dada2_jobs = [j for j in dada2_jobs if j.user.username == username]
+
+            user_token = generate_user_token(username)
+            tapis = connect_to_tapis(username, user_token)
+
+            for job in user_dada2_jobs:
+                check_dada2_job(tapis, user_token, job.uuid, job, admin_tapis)
     # 1. Query active jobs
     jobs = (
         BasecallingJob.objects
