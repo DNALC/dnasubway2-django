@@ -1263,7 +1263,7 @@ def download_and_create_datafiles(request):
     for file_info in response.json():
         file_url = file_info.get('file')
         file_id = file_info.get('id')
-        file_url = file_url.replace("gfx.dnalc.org", "dnalc02.cshl.edu")
+        file_url = file_url.replace("http://gfx.dnalc.org", "https://dnalc.cshl.edu")
 
         message, sequence, trace_exists, record, _ = parse_reads(file_url)
         if message:
