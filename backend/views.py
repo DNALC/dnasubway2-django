@@ -2611,6 +2611,7 @@ def get_azenta_file_quality(request):
         # Iterate over the response data
         for file_info in response.json():
             file_url = file_info.get('file')
+            file_url = file_url.replace("http://gfx.dnalc.org", "https://dnalc.cshl.edu")
             file_id = file_info.get('id')
             quality_map[file_id] = is_low_quality(get_quality_scores(file_url))
     except ValueError:
