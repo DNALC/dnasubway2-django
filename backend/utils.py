@@ -8,12 +8,14 @@ import hashlib
 import json
 from urllib.request import urlopen
 import os
+from pathlib import Path
 import re
 import requests
 import subprocess
 import tempfile
 import time
 import uuid
+import zipfile
 from tapipy.tapis import Tapis
 from .models import Job, DataFile, TrimJob, ConsensusJob, ConsensusData, BlastJob, BlastData, BlastResult, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, Project, ProjectDataFile, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, BlastCache
 from django.core.files.base import ContentFile
@@ -276,6 +278,8 @@ INSDC_COUNTRY_MAP = {
     "ZM": "Zambia",
     "ZW": "Zimbabwe",
 }
+
+MAX_DEPTH = 100000
 
 def validate_fastq_gz(file_obj):
     """Validate that file is gzipped FASTQ using BioPython."""
@@ -2086,3 +2090,65 @@ def generate_consensus_from_datafile(hostname, datafile_1, datafile_2, datafile_
         "status": "success",
         "message": "Consensus created",
     }
+
+def _read_html_from_qzv(trim_table):
+    """Return the contents of overview.html or index.html inside the QZV archive."""
+    try:
+        with zipfile.ZipFile(trim_table, "r") as z:
+            files = z.namelist()
+
+            # Prefer overview.html, fallback to index.html
+            for target in ("overview.html", "index.html"):
+                match = next((f for f in files if f.endswith(target)), None)
+                if match:
+                    try:
+                        return z.read(match).decode("utf-8", errors="ignore")
+                    except Exception:
+                        return None
+    except (zipfile.BadZipFile, FileNotFoundError, PermissionError):
+        return None
+
+    return None
+
+def _extract_max_frequency(document):
+    """Extract the maximum frequency from the HTML document."""
+    # Get section starting at "Frequency per sample"
+    m1 = re.search(r"Frequency per sample.*", document, flags=re.S)
+    if not m1:
+        return None
+
+    # Then the next hit beginning "Maximum frequency"
+    m2 = re.search(r"Maximum frequency.*", m1.group(0), flags=re.S)
+    if not m2:
+        return None
+
+    lines = m2.group(0).splitlines()
+    if len(lines) < 2:
+        return None
+
+    line = lines[1]
+
+    # Strip decimals and non-digits
+    cleaned = re.sub(r"\..*", "", line)
+    cleaned = re.sub(r"\D", "", cleaned)
+
+    if not cleaned:
+        return None
+
+    return int(cleaned)
+
+def get_max_rarefaction_depth(trim_table):
+    """Return the maximum rarefaction depth extracted from a QIIME2 .qzv file."""
+    path = Path(trim_table)
+    if not path.is_file():
+        return MAX_DEPTH
+
+    document = _read_html_from_qzv(path)
+    if not document:
+        return MAX_DEPTH
+
+    value = _extract_max_frequency(document)
+    if value is None or value > MAX_DEPTH:
+        return MAX_DEPTH
+
+    return value

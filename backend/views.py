@@ -26,7 +26,7 @@ import time
 import uuid
 #from django.shortcuts import render
 from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail
-from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file, extract_qiime2_metadata_sample_ids
+from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file, extract_qiime2_metadata_sample_ids, get_max_rarefaction_depth
 import gzip
 import shutil
 from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task  # Celery task
@@ -1078,6 +1078,9 @@ def project_info(request):
     demux = {}
     dada2 = {}
     metadata = {}
+    max_rarefaction_depth = 100000
+    trim_table_found = False
+    primary_found = False
     if project.project_type == "UB":
         project_metabarcoding_files = ProjectMetabarcodingFile.objects.filter(project=project).select_related('metabarcoding_file').order_by('metabarcoding_file__name')
         for project_metabarcoding_file in project_metabarcoding_files:
@@ -1128,6 +1131,7 @@ def project_info(request):
                 job_data = {
                     "id": job.id,
                     "status": job.status,
+                    "primary": job.primary,
                 }
 
                 # DADA2 parameters from Dada2JobDetail
@@ -1149,6 +1153,9 @@ def project_info(request):
                     result = job.dada2_result
                     if result.trim_table_qzv:
                         results["table"] = result.trim_table_qzv.name
+                        if not trim_table_found or (job.primary and not primary_found):
+                            max_rarefaction_depth = get_max_rarefaction_depth(result.trim_table_qzv.name)
+                        trim_table_found = True
                     if result.stats_qzv:
                         results["stats"] = result.stats_qzv.name
                     if result.rep_seqs_qza:
@@ -1157,6 +1164,9 @@ def project_info(request):
                     job_data["results"] = results
 
                 dada2["jobs"].append(job_data)
+
+                if job.primary:
+                    primary_found = True
 
     project_data = {
         'id': project.id,
@@ -1183,6 +1193,7 @@ def project_info(request):
         'nanopore_sequences': nanopore,
         'metadata': metadata,
         'metabarcoding': metabarcoding,
+        'max_rarefaction_depth': max_rarefaction_depth,
         'demux': demux,
         'dada2': dada2,
     }
