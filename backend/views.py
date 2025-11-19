@@ -25,11 +25,11 @@ import tempfile
 import time
 import uuid
 #from django.shortcuts import render
-from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail
+from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail, Dada2Result, RarefactionJobDetail
 from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file, extract_qiime2_metadata_sample_ids, get_max_rarefaction_depth
 import gzip
 import shutil
-from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task  # Celery task
+from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task, submit_rarefaction_job_task  # Celery task
 from Bio import SeqIO
 import base64
 from .models import Author, MuscleTrim
@@ -1077,6 +1077,7 @@ def project_info(request):
     metabarcoding = {}
     demux = {}
     dada2 = {}
+    rarefaction = {}
     metadata = {}
     max_rarefaction_depth = 100000
     trim_table_found = False
@@ -1105,9 +1106,17 @@ def project_info(request):
             )
             .order_by("-id")
         )
+        rarefaction_jobs = (
+            Job.objects.filter(
+                project=project,
+                appId=settings.QIIME2_RAREFACTION_APP_ID,
+            )
+            .order_by("-id")
+        )
         dada2 = {"running": False, "jobs": []}
+        rarefaction = {"running": False, "jobs": []}
         if demux_job:
-            running = demux_job.status not in ["FINISHED", "CANCELLED", "FAILED"]
+            running = demux_job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"]
 
             rand_samples = None
             if hasattr(demux_job, "demux_detail"):
@@ -1125,7 +1134,7 @@ def project_info(request):
                 demux["results"]["summary"] = summary_path
         if dada2_jobs.exists():
             # A DADA2 workflow is "running" if any job is not finished/cancelled/failed
-            dada2["running"] = any(job.status not in ["FINISHED", "CANCELLED", "FAILED"] for job in dada2_jobs)
+            dada2["running"] = any(job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"] for job in dada2_jobs)
 
             for job in dada2_jobs:
                 job_data = {
@@ -1167,6 +1176,37 @@ def project_info(request):
 
                 if job.primary:
                     primary_found = True
+            primary_found = False
+
+        if rarefaction_jobs.exists():
+            # A Rarefaction workflow is "running" if any job is not finished/cancelled/failed
+            rarefaction["running"] = any(job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"] for job in rarefaction_jobs)
+
+            for job in rarefaction_jobs:
+                job_data = {
+                    "id": job.id,
+                    "status": job.status,
+                }
+
+                # Rarefaction parameters from RarefactionJobDetail
+                if hasattr(job, "rarefaction_detail"):
+                    detail = job.rarefaction_detail
+                    job_data.update({
+                        "dada2_job_id": detail.dada2_job.id,
+                        "minDepth": detail.minDepth,
+                        "maxDepth": detail.maxDepth,
+                    })
+
+                # Rarefaction results
+                results = {}
+                if hasattr(job, "rarefaction_result"):
+                    result = job.rarefaction_result
+                    if result.alpha_rarefaction_qzv:
+                        results["plot"] = result.alpha_rarefaction_qzv.name
+                if results:
+                    job_data["results"] = results
+
+                rarefaction["jobs"].append(job_data)
 
     project_data = {
         'id': project.id,
@@ -1196,6 +1236,7 @@ def project_info(request):
         'max_rarefaction_depth': max_rarefaction_depth,
         'demux': demux,
         'dada2': dada2,
+        'rarefaction': rarefaction,
     }
     return JsonResponse({'success': 'Project retrieved', 'project': project_data})
 
@@ -4823,6 +4864,98 @@ def dada2(request):
         metadata_file.file.name,
         paired_flag,
         trimLeft, truncLen, trimLeftF, trimLeftR, truncLenF, truncLenR
+    )
+
+    return JsonResponse({'job_uuid': job.uuid, 'status': job.status})
+
+def rarefaction(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    project = parsed_data['project']
+    data = parsed_data['data']
+    user = request.user
+
+    # Get parameters
+    minDepth = int(data.get("minDepth", 1))
+    maxDepth = int(data.get("maxDepth", 3000))
+
+    # Ensure there's a finished DemuxResult for this project
+    finished_dada2_jobs = Job.objects.filter(
+        project=project,
+        appId=settings.QIIME2_DADA2_APP_ID,
+        status='FINISHED'
+    ).order_by('-id')
+
+    if not finished_dada2_jobs.exists():
+        return JsonResponse({'error': 'No completed dada2 job found for this project.'}, status=400)
+
+    primary_jobs = finished_dada2_jobs.filter(primary=True)
+
+    if primary_jobs.exists():
+        dada2_job = primary_jobs.first()
+    else:
+        dada2_job = finished_dada2_jobs.first()
+
+    dada2_result = Dada2Result.objects.filter(job=dada2_job).first()
+    if not dada2_result or not dada2_result.rooted_tree_qza or not dada2_result.trim_table_qza:
+        return JsonResponse({'error': 'Rooted Tree or Trim Table QZA file not found.'}, status=400)
+    dada2_job_detail = Dada2JobDetail.objects.filter(job=dada2_job).first()
+    if not dada2_job_detail or not dada2_job_detail.metadata_file:
+        return JsonResponse({'error': 'Could not get dada2 metadata file.'}, status=400)
+
+    # Prevent duplicate active/queued Rarefaction jobs
+    active_rarefaction_exists = Job.objects.filter(
+        user=user,
+        appId=settings.QIIME2_RAREFACTION_APP_ID
+    ).exclude(status__in=['FINISHED', 'FAILED', 'STOPPED', 'CANCELLED', 'FAILED_BOOT']).exists()
+
+    if active_rarefaction_exists:
+        return JsonResponse({
+            'error': 'You already have an active or queued Rarefaction job. Please wait for it to finish.'
+        }, status=400)
+    existing_detail = (
+        RarefactionJobDetail.objects.filter(
+            job__status='FINISHED',
+            job__project=project,
+            job__appId=settings.QIIME2_RAREFACTION_APP_ID,
+            dada2_job=dada2_job,
+            minDepth=minDepth,
+            maxDepth=maxDepth,
+        )
+        .select_related('job')
+        .order_by('-job__id')
+        .first()
+    )
+    if existing_detail:
+        return JsonResponse({
+            'error': f"A successful Rarefaction job with these parameters already exists for this project: trim{existing_detail.job.id}",
+        }, status=400)
+
+    # Create Job placeholder
+    job = placeholder_tapis_job(user, settings.QIIME2_RAREFACTION_APP_ID)
+    job.project = project
+    job.save()
+
+    # Save job details
+    RarefactionJobDetail.objects.create(
+        job=job,
+        dada2_job=dada2_job,
+        minDepth=minDepth,
+        maxDepth=maxDepth,
+    )
+
+    print(dada2_result.rooted_tree_qza.name)
+    print(dada2_result.trim_table_qza.name)
+
+    # Submit async task
+    submit_rarefaction_job_task.delay(
+        job.id,
+        dada2_result.rooted_tree_qza.name,
+        dada2_result.trim_table_qza.name,
+        dada2_job_detail.metadata_file.file.name,
+        minDepth, maxDepth
     )
 
     return JsonResponse({'job_uuid': job.uuid, 'status': job.status})

@@ -479,6 +479,24 @@ class Job(models.Model):
     def __str__(self):
         return f"Job {self.uuid} - {self.status}"
 
+class RarefactionJobDetail(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="rarefaction_detail")
+    dada2_job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="rarefaction_jobs")
+    minDepth = models.PositiveIntegerField(default=0)
+    maxDepth = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return f"Rarefaction details for Job {self.job.uuid}"
+
+
+class RarefactionResult(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="rarefaction_result")
+    alpha_rarefaction_qzv = models.FileField(upload_to="rarefaction_files/", blank=True, null=True)
+    log_file = models.FileField(upload_to="rarefaction_files/", blank=True, null=True)
+
+    def __str__(self):
+        return f"Rarefaction results for Job {self.job.uuid}"
+
 class JobPodFile(models.Model):
     job = models.ForeignKey(Job, on_delete=models.CASCADE)
     podfile = models.ForeignKey(PodFile, on_delete=models.CASCADE)

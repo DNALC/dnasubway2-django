@@ -93,6 +93,7 @@ urlpatterns = [
     path("backend/metadata_content", get_metadata_content, name='metadata_content'),
     path("backend/demux", demux, name='demux'),
     path("backend/dada2", dada2, name='dada2'),
+    path("backend/rarefaction", rarefaction, name='rarefaction'),
 ]
 
 
