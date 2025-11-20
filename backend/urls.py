@@ -91,6 +91,7 @@ urlpatterns = [
     path("backend/validate_metadata", validate_metadata, name='validate_metadata'),
     path("backend/create_metadata", create_metadata_from_scratch, name='create_metadata'),
     path("backend/metadata_content", get_metadata_content, name='metadata_content'),
+    path("backend/ub_classifiers", ub_classifiers, name='ub_classifiers'),
     path("backend/demux", demux, name='demux'),
     path("backend/dada2", dada2, name='dada2'),
     path("backend/rarefaction", rarefaction, name='rarefaction'),

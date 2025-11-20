@@ -5397,3 +5397,9 @@ def create_metadata_from_scratch(request):
     )
 
     return JsonResponse({"id": metadata_file.id})
+
+def ub_classifiers(request):
+    classifiers = settings.CLASSIFIERS.keys()
+    return JsonResponse({
+        'classifiers': list(classifiers)
+    })
