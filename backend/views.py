@@ -29,7 +29,7 @@ from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken
 from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file, extract_qiime2_metadata_sample_ids, get_max_rarefaction_depth
 import gzip
 import shutil
-from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task, submit_rarefaction_job_task  # Celery task
+from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task, submit_rarefaction_job_task, submit_coremetrics_job_task  # Celery task
 from Bio import SeqIO
 import base64
 from .models import Author, MuscleTrim
@@ -4771,12 +4771,15 @@ def dada2(request):
     user = request.user
 
     # Get parameters (default to 0)
-    trimLeft = int(data.get("trimLeft", 0))
-    truncLen = int(data.get("truncLen", 0))
-    trimLeftF = int(data.get("trimLeftF", 0))
-    trimLeftR = int(data.get("trimLeftR", 0))
-    truncLenF = int(data.get("truncLenF", 0))
-    truncLenR = int(data.get("truncLenR", 0))
+    try:
+        trimLeft = int(data.get("trimLeft", 0))
+        truncLen = int(data.get("truncLen", 0))
+        trimLeftF = int(data.get("trimLeftF", 0))
+        trimLeftR = int(data.get("trimLeftR", 0))
+        truncLenF = int(data.get("truncLenF", 0))
+        truncLenR = int(data.get("truncLenR", 0))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Trim Left and truncation length must be integers."}, status=400)
     file_id = data.get('metadata_file_id')
 
     if not file_id:
@@ -4878,8 +4881,11 @@ def rarefaction(request):
     user = request.user
 
     # Get parameters
-    minDepth = int(data.get("minDepth", 1))
-    maxDepth = int(data.get("maxDepth", 3000))
+    try:
+        minDepth = int(data.get("minDepth", 1))
+        maxDepth = int(data.get("maxDepth", 3000))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Min and max depth must be integers."}, status=400)
 
     # Ensure there's a finished DemuxResult for this project
     finished_dada2_jobs = Job.objects.filter(
@@ -4930,7 +4936,7 @@ def rarefaction(request):
     )
     if existing_detail:
         return JsonResponse({
-            'error': f"A successful Rarefaction job with these parameters already exists for this project: trim{existing_detail.job.id}",
+            'error': f"A successful Rarefaction job with these parameters already exists for this project: ar{existing_detail.job.id}",
         }, status=400)
 
     # Create Job placeholder
@@ -4946,9 +4952,6 @@ def rarefaction(request):
         maxDepth=maxDepth,
     )
 
-    print(dada2_result.rooted_tree_qza.name)
-    print(dada2_result.trim_table_qza.name)
-
     # Submit async task
     submit_rarefaction_job_task.delay(
         job.id,
@@ -4956,6 +4959,108 @@ def rarefaction(request):
         dada2_result.trim_table_qza.name,
         dada2_job_detail.metadata_file.file.name,
         minDepth, maxDepth
+    )
+
+    return JsonResponse({'job_uuid': job.uuid, 'status': job.status})
+
+def coremetrics(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    project = parsed_data['project']
+    data = parsed_data['data']
+    user = request.user
+
+    try:
+        sdepth = int(data.get("sdepth", 10))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Sampling depth must be an integer."}, status=400)
+    sdepth = int(data.get("sdepth", 10))
+    classifier = data.get("classifier", "")
+
+    if classifier not in settings.CLASSIFIERS:
+        return JSONResponse({"error": f"Invalid classifier '{classifier}'"}, status=400)
+
+    if sdepth < 10 or sdepth > 20000:
+        return JSONResponse({"error": "Sampling depth must be between 10 and 20000"}, status=400)
+
+    # Ensure there's a finished Dada2Result for this project
+    finished_dada2_jobs = Job.objects.filter(
+        project=project,
+        appId=settings.QIIME2_DADA2_APP_ID,
+        status='FINISHED'
+    ).order_by('-id')
+
+    if not finished_dada2_jobs.exists():
+        return JsonResponse({'error': 'No completed dada2 job found for this project.'}, status=400)
+
+    primary_jobs = finished_dada2_jobs.filter(primary=True)
+
+    if primary_jobs.exists():
+        dada2_job = primary_jobs.first()
+    else:
+        dada2_job = finished_dada2_jobs.first()
+
+    dada2_result = Dada2Result.objects.filter(job=dada2_job).first()
+    if not dada2_result or not dada2_result.rooted_tree_qza or not dada2_result.trim_table_qza or not dada2_result.rep_seqs_qza:
+        return JsonResponse({'error': 'Rooted Tree or Trim Table or Rep Seqs QZA file not found.'}, status=400)
+    dada2_job_detail = Dada2JobDetail.objects.filter(job=dada2_job).first()
+    if not dada2_job_detail or not dada2_job_detail.metadata_file:
+        return JsonResponse({'error': 'Could not get dada2 metadata file.'}, status=400)
+
+    # Prevent duplicate active/queued Core metrics jobs
+    active_coremetrics_exists = Job.objects.filter(
+        user=user,
+        appId=settings.QIIME2_COREMETRICS_APP_ID
+    ).exclude(status__in=['FINISHED', 'FAILED', 'STOPPED', 'CANCELLED', 'FAILED_BOOT']).exists()
+
+    if active_coremetrics_exists:
+        return JsonResponse({
+            'error': 'You already have an active or queued Core metrics job. Please wait for it to finish.'
+        }, status=400)
+    existing_detail = (
+        CoreMetricsJobDetail.objects.filter(
+            job__status='FINISHED',
+            job__project=project,
+            job__appId=settings.QIIME2_COREMETRICS_APP_ID,
+            dada2_job=dada2_job,
+            sdepth=sdepth,
+            classifier=classifier,
+        )
+        .select_related('job')
+        .order_by('-job__id')
+        .first()
+    )
+    if existing_detail:
+        return JsonResponse({
+            'error': f"A successful Core metrics job with these parameters already exists for this project: cm{existing_detail.job.id}",
+        }, status=400)
+
+    # Create Job placeholder
+    job = placeholder_tapis_job(user, settings.QIIME2_COREMETRICS_APP_ID)
+    job.project = project
+    job.save()
+
+    # Save job details
+    CoreMetricsJobDetail.objects.create(
+        job=job,
+        dada2_job=dada2_job,
+        sdepth=sdepth,
+        classifier=classifier,
+    )
+
+    classifier_file = settings.CLASSIFIERS[classifier]
+
+    # Submit async task
+    submit_coremetrics_job_task.delay(
+        job.id,
+        dada2_result.rooted_tree_qza.name,
+        dada2_result.trim_table_qza.name,
+        dada2_result.rep_seqs_qza.name,
+        dada2_job_detail.metadata_file.file.name,
+        classifier_file,
+        sdepth
     )
 
     return JsonResponse({'job_uuid': job.uuid, 'status': job.status})

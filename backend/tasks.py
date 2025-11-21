@@ -1146,3 +1146,77 @@ def submit_rarefaction_job_task(job_id, rooted_tree_qza_path, trim_table_qza_pat
     except Exception as e:
         job.status = 'FAILED'
         job.save()
+
+@shared_task
+def submit_coremetrics_job_task(job_id, rooted_tree_qza_path, trim_table_qza_path, rep_seqs_qza_path, metadata_path, classifier_file, sdepth):
+    job = Job.objects.get(id=job_id)
+    project = job.project
+    user = job.user
+
+    rooted_tree_filename = os.path.basename(rooted_tree_qza_path)
+    trim_table_filename = os.path.basename(trim_table_qza_path)
+    rep_seqs_filename = os.path.basename(rep_seqs_qza_path)
+    rooted_tree_source_url = settings.REACT_URL + "backend/" + rooted_tree_qza_path
+    trim_table_source_url = settings.REACT_URL + "backend/" + trim_table_qza_path
+    rep_seqs_source_url = settings.REACT_URL + "backend/" + rep_seqs_qza_path
+    classifier_source_url = settings.REACT_URL + "backend/ub_classifiers/" + classifier_file
+    metadata_source_url = settings.REACT_URL + "backend/" + metadata_path
+
+    fileInputs = [{
+        "name": rooted_tree_filename,
+        "sourceUrl": rooted_tree_source_url,
+        "targetPath": "rooted-tree.qza"
+    },
+    {
+        "name": trim_table_filename,
+        "sourceUrl": trim_table_source_url,
+        "targetPath": "table-trimming.qza"
+    },
+    {
+        "name": rep_seqs_filename,
+        "sourceUrl": rep_seqs_source_url,
+        "targetPath": "rep-seqs.qza"
+    },
+    {
+        "name": classifier_file,
+        "sourceUrl": classifier_source_url,
+        "targetPath": classifier_file,
+    },
+    {
+        "name": "metadata.tsv",
+        "sourceUrl": metadata_source_url,
+        "targetPath": "metadata.tsv"
+    }]
+
+    job_params = {
+        "name": "coremetrics",
+        "appId": settings.QIIME2_COREMETRICS_APP_ID,
+        "appVersion": settings.QIIME2_COREMETRICS_APP_VERSION,
+        "fileInputs": fileInputs,
+        "parameterSet": {
+            "envVariables": [
+                {"key": "DEBUG", "value": "1"},
+                {"key": "tree", "value": "rooted-tree.qza"},
+                {"key": "table", "value": "table-trimming.qza"},
+                {"key": "repseqs", "value": "rep-seqs.qza"},
+                {"key": "jobName", "value": "trim-cm"},
+                {"key": "metadata", "value": "metadata.tsv"},
+                {"key": "classifier", "value": classifier_file},
+                {"key": "sdepth", "value": str(sdepth)},
+            ]
+        }
+    }
+
+    try:
+        get_service_token()
+        user_token = generate_user_token(user.username)
+        t = connect_to_tapis(user.username, user_token)
+        tapis_job_response = t.jobs.submitJob(**job_params)
+
+        job.uuid = tapis_job_response.get('uuid')
+        job.status = tapis_job_response.get('status', 'PENDING')
+        job.save()
+
+    except Exception as e:
+        job.status = 'FAILED'
+        job.save()
