@@ -1159,7 +1159,7 @@ def submit_coremetrics_job_task(job_id, rooted_tree_qza_path, trim_table_qza_pat
     rooted_tree_source_url = settings.REACT_URL + "backend/" + rooted_tree_qza_path
     trim_table_source_url = settings.REACT_URL + "backend/" + trim_table_qza_path
     rep_seqs_source_url = settings.REACT_URL + "backend/" + rep_seqs_qza_path
-    classifier_source_url = settings.REACT_URL + "backend/ub_classifiers/" + classifier_file
+    classifier_source_url = settings.REACT_URL + "backend/ubclassifier_files/" + classifier_file
     metadata_source_url = settings.REACT_URL + "backend/" + metadata_path
 
     fileInputs = [{
