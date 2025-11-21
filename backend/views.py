@@ -4972,12 +4972,11 @@ def coremetrics(request):
     data = parsed_data['data']
     user = request.user
 
+    classifier = data.get("classifier", "")
     try:
         sdepth = int(data.get("sdepth", 10))
     except (TypeError, ValueError):
         return JSONResponse({"error": "Sampling depth must be an integer."}, status=400)
-    sdepth = int(data.get("sdepth", 10))
-    classifier = data.get("classifier", "")
 
     if classifier not in settings.CLASSIFIERS:
         return JSONResponse({"error": f"Invalid classifier '{classifier}'"}, status=400)
