@@ -1855,8 +1855,15 @@ def fix_consensus_from_file(forward_alignment, reverse_alignment, consensus, for
     qs2 = list(reversed(qs2))
 
     # Trim the quality scores based on respective left and right trims
-    trimmed_qs1 = qs1[left_trim_forward:right_trim_forward]
-    trimmed_qs2 = qs2[left_trim_reverse:right_trim_reverse]
+    if left_trim_forward == 0 and right_trim_forward == 0:
+        trimmed_qs1 = qs1
+    else:
+        trimmed_qs1 = qs1[left_trim_forward:right_trim_forward]
+
+    if left_trim_reverse == 0 and right_trim_reverse == 0:
+        trimmed_qs2 = qs2
+    else:
+        trimmed_qs2 = qs2[left_trim_reverse:right_trim_reverse]
     trimmed_qs2 = list(reversed(trimmed_qs2))
 
     def apply_gaps_to_quality(alignment, trimmed_qs):
