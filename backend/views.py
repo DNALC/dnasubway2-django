@@ -1227,7 +1227,7 @@ def project_info(request):
                     "status": job.status,
                 }
 
-                # Rarefaction parameters from RarefactionJobDetail
+                # Coremetrics parameters from CoremetricsJobDetail
                 if hasattr(job, "coremetrics_detail"):
                     detail = job.coremetrics_detail
                     job_data.update({

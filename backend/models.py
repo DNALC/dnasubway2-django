@@ -498,7 +498,7 @@ class RarefactionResult(models.Model):
         return f"Rarefaction results for Job {self.job.uuid}"
 
 class CoreMetricsJobDetail(models.Model):
-    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="cormetrics_detail")
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="coremetrics_detail")
     dada2_job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="coremetrics_jobs")
     sdepth = models.PositiveIntegerField(default=0)
     classifier = models.CharField(max_length=255)
