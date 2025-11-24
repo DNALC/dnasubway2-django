@@ -96,6 +96,7 @@ urlpatterns = [
     path("backend/dada2", dada2, name='dada2'),
     path("backend/rarefaction", rarefaction, name='rarefaction'),
     path("backend/coremetrics", coremetrics, name='coremetrics'),
+    path("backend/gneiss", gneiss, name='gneiss'),
 ]
 
 

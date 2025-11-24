@@ -528,6 +528,16 @@ class CoreMetricsResult(models.Model):
     def __str__(self):
         return f"CoreMetrics results for Job {self.job.uuid}"
 
+class GneissJobDetail(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="gneiss_detail")
+    coremetrics_job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="gneiss_jobs")
+    category = models.CharField(max_length=36)
+    formula = models.CharField(max_length=512)
+    taxalevel = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return f"Gneiss details for Job {self.job.uuid}"
+
 class JobPodFile(models.Model):
     job = models.ForeignKey(Job, on_delete=models.CASCADE)
     podfile = models.ForeignKey(PodFile, on_delete=models.CASCADE)
