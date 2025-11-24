@@ -335,7 +335,7 @@ def check_coremetrics_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
         # Both must exist
         if not taxonomy_qza_file or not output_tgz_file:
             tprint("Missing taxonomy.qza or output.tgz → FAILED")
-CoreMetricsResult            job_obj.status = "FAILED"
+            job_obj.status = "FAILED"
             job_obj.save(update_fields=["status"])
             return
 
