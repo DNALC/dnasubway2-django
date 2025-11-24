@@ -1,7 +1,7 @@
 from django.conf import settings
 import os
 import re
-from .models import BasecallingJob, PodFile, NanoporeSequence, UserNanoporeSequence, JobPodFile, DataFolder, NanoporeSequenceFolder, DemuxResult, Dada2Result, RarefactionResult, Job
+from .models import BasecallingJob, PodFile, NanoporeSequence, UserNanoporeSequence, JobPodFile, DataFolder, NanoporeSequenceFolder, DemuxResult, Dada2Result, RarefactionResult, CoreMetricsResult, Job
 from .utils import (
     shelve_instance,
     ensure_instance_ready,
@@ -285,6 +285,150 @@ def check_rarefaction_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
     job_obj.save(update_fields=["status"])
     tprint("Rarefaction job status:", current_status)
 
+def check_coremetrics_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
+    tprint("Checking coremetrics job " + job_uuid)
+    status = get_job_status(tapis, job_uuid)
+    if not status:
+        return
+
+    current_status = status.get("status")
+    tprint("Current status: " + current_status)
+
+    user = job_obj.user
+
+    if current_status == "FINISHED":
+        job_obj.status = "FINISHING"
+        job_obj.save(update_fields=["status"])
+
+        # List files in job archive
+        all_files = list_all_files(tapis, job_uuid)
+
+        taxonomy_qza_file = None
+        output_tgz_file = None
+
+        # Map output filenames to CoreMetricsResult fields
+        qzv_map = {
+            "bray-curtis-bioenv.qzv": "bray_curtis_bioenv",
+            "bray-curtis-emperor.qzv": "bray_curtis_emperor",
+            "bray_curtis_emperor.qzv": "bray_curtis_emperor",
+            "evenness-correlation.qzv": "evenness_correlation",
+            "evenness-group-significance.qzv": "evenness_group_significance",
+            "faith-pd-correlation.qzv": "faith_pd_correlation",
+            "faith-pd-group-significance.qzv": "faith_pd_group_significance",
+            "jaccard_emperor.qzv": "jaccard_emperor",
+            "taxa-bar-plots.qzv": "taxa_bar_plots",
+            "taxonomy.qzv": "taxonomy_qzv",
+            "unweighted-unifrac-bioenv.qzv": "unweighted_unifrac_bioenv",
+            "unweighted-unifrac-emperor.qzv": "unweighted_unifrac_emperor",
+            "unweighted_unifrac_emperor.qzv": "unweighted_unifrac_emperor",
+            "weighted_unifrac-emperor.qzv": "weighted_unifrac_emperor",
+            "weighted_unifrac_emperor.qzv": "weighted_unifrac_emperor",
+        }
+
+        # Detect required input files
+        for f in all_files:
+            if f.endswith("taxonomy.qza"):
+                taxonomy_qza_file = f
+            if f.endswith("output.tgz"):
+                output_tgz_file = f
+
+        # Both must exist
+        if not taxonomy_qza_file or not output_tgz_file:
+            tprint("Missing taxonomy.qza or output.tgz → FAILED")
+CoreMetricsResult            job_obj.status = "FAILED"
+            job_obj.save(update_fields=["status"])
+            return
+
+        coremetrics_result, _ = CoreMetricsResult.objects.get_or_create(job=job_obj)
+
+        # Helper to download taxonomy.qza
+        def download_and_save(remote_path, field_name, filename):
+            content = download_tapis_file("js2_dnasubway2", user_token, remote_path)
+            if content:
+                getattr(coremetrics_result, field_name).save(
+                    filename,
+                    ContentFile(content),
+                    save=False
+                )
+                return True
+            return False
+
+        # Download taxonomy.qza
+        tprint(f"GET {taxonomy_qza_file}")
+        download_and_save(
+            f"scratch/{user.username}/job-{job_uuid}/taxonomy.qza",
+            "taxonomy_qza",
+            f"{coremetrics_result.id}-taxonomy.qza",
+        )
+
+        # Download output.tgz to memory (not saved)
+        tprint(f"GET {output_tgz_file}")
+        tgz_bytes = download_tapis_file(
+            "js2_dnasubway2",
+            user_token,
+            f"scratch/{user.username}/job-{job_uuid}/output.tgz"
+        )
+
+        if not tgz_bytes:
+            tprint("Failed to download output.tgz → FAILED")
+            job_obj.status = "FAILED"
+            job_obj.save(update_fields=["status"])
+            return
+
+        # Extract qzv files from output.tgz
+        import tarfile, io
+        qzv_found = False
+
+        try:
+            with tarfile.open(fileobj=io.BytesIO(tgz_bytes)) as tar:
+                for member in tar.getmembers():
+                    if not member.name.endswith(".qzv"):
+                        continue
+
+                    basename = member.name.split("/")[-1]
+                    if basename not in qzv_map:
+                        continue
+
+                    django_field = qzv_map[basename]
+                    file_bytes = tar.extractfile(member).read()
+
+                    getattr(coremetrics_result, django_field).save(
+                        f"{coremetrics_result.id}-{basename}",
+                        ContentFile(file_bytes),
+                        save=False,
+                    )
+                    qzv_found = True
+
+        except Exception as e:
+            tprint(f"Error reading output.tgz: {e}")
+            job_obj.status = "FAILED"
+            job_obj.save(update_fields=["status"])
+            return
+
+        # At least one qzv is required
+        if not qzv_found:
+            tprint("No qzv files found in output.tgz → FAILED")
+            job_obj.status = "FAILED"
+            job_obj.save(update_fields=["status"])
+            return
+
+        coremetrics_result.save()
+
+        # Cleanup Tapis scratch directory
+        try:
+            admin_tapis.files.delete(
+                systemId="js2_dnasubway2",
+                path=f"scratch/{user.username}/job-{job_uuid}/",
+            )
+            tprint(f"Deleted /scratch/{user.username}/job-{job_uuid}/ from Tapis")
+        except Exception as e:
+            tprint(f"Failed to delete job files: {e}")
+
+    # Update status normally
+    job_obj.status = current_status
+    job_obj.save(update_fields=["status"])
+    tprint("CoreMetrics job status:", current_status)
+
 def check_job(tapis, job_uuid, job_obj, admin_tapis):
     tprint("Checking job " + job_uuid)
     status = get_job_status(tapis, job_uuid)
@@ -375,6 +519,11 @@ def poll_active_jobs():
         .filter(appId=settings.QIIME2_RAREFACTION_APP_ID)
         .exclude(status__in=['FINISHED', 'CANCELLED', 'FAILED', 'STOPPED', 'STARTING', 'FAILED_BOOT', 'FINISHING'])
     )
+    coremetrics_jobs = (
+        Job.objects
+        .filter(appId=settings.QIIME2_COREMETRICS_APP_ID)
+        .exclude(status__in=['FINISHED', 'CANCELLED', 'FAILED', 'STOPPED', 'STARTING', 'FAILED_BOOT', 'FINISHING'])
+    )
     if demux_jobs.exists():
         usernames = set(j.user.username for j in demux_jobs)
 
@@ -411,6 +560,18 @@ def poll_active_jobs():
 
             for job in user_rarefaction_jobs:
                 check_rarefaction_job(tapis, user_token, job.uuid, job, admin_tapis)
+    if coremetrics_jobs.exists():
+        usernames = set(j.user.username for j in coremetrics_jobs)
+
+        for username in usernames:
+            tprint("Checking coremetrics jobs for user " + username)
+            user_coremetrics_jobs = [j for j in coremetrics_jobs if j.user.username == username]
+
+            user_token = generate_user_token(username)
+            tapis = connect_to_tapis(username, user_token)
+
+            for job in user_coremetrics_jobs:
+                check_coremetrics_job(tapis, user_token, job.uuid, job, admin_tapis)
     # 1. Query active jobs
     jobs = (
         BasecallingJob.objects

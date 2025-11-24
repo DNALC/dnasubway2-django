@@ -506,6 +506,28 @@ class CoreMetricsJobDetail(models.Model):
     def __str__(self):
         return f"Core Metrics details for Job {self.job.uuid}"
 
+class CoreMetricsResult(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="coremetrics_result")
+
+    taxonomy_qza = models.FileField(upload_to="coremetrics_files/", blank=True, null=True)
+
+    # Each core metric qzv
+    bray_curtis_bioenv = models.FileField(upload_to="coremetrics_files/", blank=True, null=True)
+    bray_curtis_emperor = models.FileField(upload_to="coremetrics_files/", blank=True, null=True)
+    evenness_correlation = models.FileField(upload_to="coremetrics_files/", blank=True, null=True)
+    evenness_group_significance = models.FileField(upload_to="coremetrics_files/", blank=True, null=True)
+    faith_pd_correlation = models.FileField(upload_to="coremetrics_files/", blank=True, null=True)
+    faith_pd_group_significance = models.FileField(upload_to="coremetrics_files/", blank=True, null=True)
+    jaccard_emperor = models.FileField(upload_to="coremetrics_files/", blank=True, null=True)
+    taxa_bar_plots = models.FileField(upload_to="coremetrics_files/", blank=True, null=True)
+    taxonomy_qzv = models.FileField(upload_to="coremetrics_files/", blank=True, null=True)
+    unweighted_unifrac_bioenv = models.FileField(upload_to="coremetrics_files/", blank=True, null=True)
+    unweighted_unifrac_emperor = models.FileField(upload_to="coremetrics_files/", blank=True, null=True)
+    weighted_unifrac_emperor = models.FileField(upload_to="coremetrics_files/", blank=True, null=True)
+
+    def __str__(self):
+        return f"CoreMetrics results for Job {self.job.uuid}"
+
 class JobPodFile(models.Model):
     job = models.ForeignKey(Job, on_delete=models.CASCADE)
     podfile = models.ForeignKey(PodFile, on_delete=models.CASCADE)
