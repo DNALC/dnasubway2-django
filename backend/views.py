@@ -4104,6 +4104,21 @@ def upload_metabarcoding(request):
     except Project.DoesNotExist:
         return JsonResponse({"error": "Project not found"}, status=404)
 
+    demux_job = (
+        Job.objects.filter(
+            project=project,
+            appId=settings.QIIME2_DEMUX_APP_ID,
+        )
+        .order_by("-id")
+        .first()
+    )
+    demux_run_or_success = False
+    if demux_job:
+        demux_run_or_success = demux_job.status not in ["CANCELLED", "FAILED", "STOPPED"]
+
+    if demux_run_or_success:
+        return JsonResponse({"error": "You cannot upload metabarcoding files while demuliplexing is running or after it succeeds"}, status=400)
+
     uploaded_file = request.FILES['file']
 
     if not uploaded_file.name.endswith(".fastq.gz"):
@@ -4156,6 +4171,21 @@ def delete_metabarcoding_file(request):
     data = parsed_data['data']
     project = parsed_data['project']
     file_id = data.get('metabarcoding_file_id')
+
+    demux_job = (
+        Job.objects.filter(
+            project=project,
+            appId=settings.QIIME2_DEMUX_APP_ID,
+        )
+        .order_by("-id")
+        .first()
+    )
+    demux_run_or_success = False
+    if demux_job:
+        demux_run_or_success = demux_job.status not in ["CANCELLED", "FAILED", "STOPPED"]
+
+    if demux_run_or_success:
+        return JsonResponse({"error": "You cannot delete metabarcoding files while demuliplexing is running or after it succeeds"}, status=400)
 
     if not file_id:
         return JsonResponse({'error': 'metabarcoing_file_id is required'}, status=400)
@@ -4267,14 +4297,43 @@ def save_metadata(request):
     if errors:
         return JsonResponse({"error": "Invalid metadata file", "warnings": errors}, status=400)
 
-    storage = metadata_file.file.storage
-    path = metadata_file.file.name  # e.g. "metadata_files/myfile.tsv"
+    used_in_active_dada2 = Dada2JobDetail.objects.filter(
+        metadata_file=metadata_file
+    ).exclude(
+        job__status__in=["STOPPED", "CANCELLED", "FAILED"]
+    ).exists()
 
-    storage.delete(path)
-    storage.save(path, ContentFile(file_contents))
+    user = request.user
 
-    metadata_file.validated = False
-    metadata_file.save()
+    if used_in_active_dada2:
+        existing_names = ProjectMetadataFile.objects.filter(project=project).values_list(
+            'metadata_file__name', flat=True
+        )
+        base_filename = "metadata.tsv"
+        filename = base_filename
+        counter = 1
+        while filename in existing_names:
+            filename = f"metadata_{counter}.tsv"
+            counter += 1
+
+        new_metadata_file = MetadataFile.objects.create(
+            name=filename,
+            user=user,
+            validated=False
+        )
+        new_metadata_file.file.save(f"{new_metadata_file.id}.tsv", ContentFile(file_contents), save=True)
+
+        ProjectMetadataFile.objects.create(
+            project=project,
+            metadata_file=new_metadata_file
+        )
+    else:
+        storage = metadata_file.file.storage
+        path = metadata_file.file.name  # e.g. "metadata_files/myfile.tsv"
+        storage.delete(path)
+        storage.save(path, ContentFile(file_contents))
+        metadata_file.validated = False
+        metadata_file.save()
 
     return JsonResponse({'status': 'success'})
 
@@ -5248,6 +5307,21 @@ def upload_cyverse_metabarcoding(request):
     if not jwt:
         return JsonResponse({'error': 'JWT is required for CyVerse access'}, status=401)
 
+    demux_job = (
+        Job.objects.filter(
+            project=project,
+            appId=settings.QIIME2_DEMUX_APP_ID,
+        )
+        .order_by("-id")
+        .first()
+    )
+    demux_run_or_success = False
+    if demux_job:
+        demux_run_or_success = demux_job.status not in ["CANCELLED", "FAILED", "STOPPED"]
+
+    if demux_run_or_success:
+        return JsonResponse({"error": "You cannot upload metabarcoding files while demuliplexing is running or after it succeeds"}, status=400)
+
     created_files = []
 
     for file_uri in selectedFiles:
@@ -5435,6 +5509,21 @@ def rename_metabarcoding_file(request):
     file_id = data.get('metabarcoding_file_id')
     new_name = data.get('new_name')
 
+    demux_job = (
+        Job.objects.filter(
+            project=project,
+            appId=settings.QIIME2_DEMUX_APP_ID,
+        )
+        .order_by("-id")
+        .first()
+    )
+    demux_run_or_success = False
+    if demux_job:
+        demux_run_or_success = demux_job.status not in ["CANCELLED", "FAILED", "STOPPED"]
+
+    if demux_run_or_success:
+        return JsonResponse({"error": "You cannot rename metabarcoding files while demuliplexing is running or after it succeeds"}, status=400)
+
     if not file_id or not new_name:
         return JsonResponse({'error': 'metabarcoding_file_id and new_name are required'}, status=400)
 
@@ -5487,6 +5576,15 @@ def delete_metadata_file(request):
         metadata_file = MetadataFile.objects.get(id=file_id)
     except MetadataFile.DoesNotExist:
         return JsonResponse({'error': 'Metadata file not found'}, status=404)
+
+    used_in_active_dada2 = Dada2JobDetail.objects.filter(
+        metadata_file=metadata_file
+    ).exclude(
+        job__status__in=["STOPPED", "CANCELLED", "FAILED"]
+    ).exists()
+
+    if used_in_active_dada2:
+        return JsonResponse({'error': 'Cannot remove metadata file used in an active or completed DADA2 job'}, status=403)
 
     project_metadata_file = ProjectMetadataFile.objects.filter(project=project, metadata_file=metadata_file).first()
 
