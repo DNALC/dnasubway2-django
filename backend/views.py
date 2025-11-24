@@ -1219,7 +1219,7 @@ def project_info(request):
 
         if coremetrics_jobs.exists():
             # A Coremetrics workflow is "running" if any job is not finished/cancelled/failed
-            rarefaction["running"] = any(job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"] for job in coremetrics_jobs)
+            coremetrics["running"] = any(job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"] for job in coremetrics_jobs)
 
             for job in coremetrics_jobs:
                 job_data = {
