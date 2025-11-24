@@ -1078,6 +1078,7 @@ def project_info(request):
     demux = {}
     dada2 = {}
     rarefaction = {}
+    coremetrics = {}
     metadata = {}
     max_rarefaction_depth = 100000
     trim_table_found = False
@@ -1113,8 +1114,16 @@ def project_info(request):
             )
             .order_by("-id")
         )
+        coremetrics_jobs = (
+            Job.objects.filter(
+                project=project,
+                appId=settings.QIIME2_COREMETRICS_APP_ID,
+            )
+            .order_by("-id")
+        )
         dada2 = {"running": False, "jobs": []}
         rarefaction = {"running": False, "jobs": []}
+        coremetrics = {"running": False, "jobs": []}
         if demux_job:
             running = demux_job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"]
 
@@ -1208,6 +1217,52 @@ def project_info(request):
 
                 rarefaction["jobs"].append(job_data)
 
+        if coremetrics_jobs.exists():
+            # A Coremetrics workflow is "running" if any job is not finished/cancelled/failed
+            rarefaction["running"] = any(job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"] for job in coremetrics_jobs)
+
+            for job in coremetrics_jobs:
+                job_data = {
+                    "id": job.id,
+                    "status": job.status,
+                }
+
+                # Rarefaction parameters from RarefactionJobDetail
+                if hasattr(job, "coremetrics_detail"):
+                    detail = job.coremetrics_detail
+                    job_data.update({
+                        "dada2_job_id": detail.dada2_job.id,
+                        "sdepth": detail.sdepth,
+                        "classifier": detail.classifier,
+                    })
+
+                # Coremetrics results
+                results = {}
+                if hasattr(job, "coremetrics_result"):
+                    result = job.coremetrics_result
+                    coremetrics_field_map = {
+                        "evenness_correlation": "Pielou's Evenness Correlation",
+                        "evenness_group_significance": "Pielou's Evenness Group Significance",
+                        "faith_pd_correlation": "Faith's Phylogenetic Diversity Correlation",
+                        "faith_pd_group_significance": "Faith's Phylogenetic Diversity Group Significance",
+                        "bray_curtis_bioenv": "Bray Curtis Distance Bioenv",
+                        "bray_curtis_emperor": "Bray Curtis Distance Emperor",
+                        "jaccard_emperor": "Jaccard Distance Emperor",
+                        "unweighted_unifrac_bioenv": "Unweighted UniFrac Distance Bioenv",
+                        "unweighted_unifrac_emperor": "Unweighted UniFrac Distance Emperor",
+                        "weighted_unifrac_emperor": "Weighted UniFrac Distance Emperor",
+                        "taxa_bar_plots": "Taxonomic Diversity Bar Plots",
+                        "taxonomy_qzv": "Taxonomic Diversity Taxonomy",
+                    }
+                    for field_name, label in coremetrics_field_map.items():
+                        file_field = getattr(result, field_name)
+                        if file_field:
+                            results[label] = file_field.name
+                if results:
+                    job_data["results"] = results
+
+                coremetrics["jobs"].append(job_data)
+
     project_data = {
         'id': project.id,
         'muscle_job': has_muscle_job,
@@ -1237,6 +1292,7 @@ def project_info(request):
         'demux': demux,
         'dada2': dada2,
         'rarefaction': rarefaction,
+        'coremetrics': coremetrics,
     }
     return JsonResponse({'success': 'Project retrieved', 'project': project_data})
 
