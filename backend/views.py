@@ -1079,6 +1079,7 @@ def project_info(request):
     dada2 = {}
     rarefaction = {}
     coremetrics = {}
+    gneiss = {}
     metadata = {}
     used_metadata_file_id = None
     max_rarefaction_depth = 100000
@@ -1122,9 +1123,17 @@ def project_info(request):
             )
             .order_by("-id")
         )
+        gneiss_jobs = (
+            Job.objects.filter(
+                project=project,
+                appId=settings.QIIME2_GNEISS_APP_ID,
+            )
+            .order_by("-id")
+        )
         dada2 = {"running": False, "jobs": []}
         rarefaction = {"running": False, "jobs": []}
         coremetrics = {"running": False, "jobs": []}
+        gneiss = {"running": False, "jobs": []}
         if demux_job:
             running = demux_job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"]
 
@@ -1285,6 +1294,37 @@ def project_info(request):
                 else None
             )
 
+        if gneiss_jobs.exists():
+            # A Gneiss workflow is "running" if any job is not finished/cancelled/failed
+            gneiss["running"] = any(job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"] for job in gneiss_jobs)
+
+            for job in gneiss_jobs:
+                job_data = {
+                    "id": job.id,
+                    "status": job.status,
+                }
+
+                # Gneiss parameters from GneissJobDetail
+                if hasattr(job, "gneiss_detail"):
+                    detail = job.gneiss_detail
+                    job_data.update({
+                        "coremetrics_job_id": detail.coremetrics_job.id,
+                        "category": detail.category,
+                        "formula": detail.formula,
+                        "taxalevel": detail.taxalevel,
+                    })
+
+                # Gneiss results
+                results = {}
+                if hasattr(job, "gneiss_result"):
+                    result = job.gneiss_result
+                    if result.heatmap:
+                        results["Heatmap"] = result.heatmap.name
+                if results:
+                    job_data["results"] = results
+
+                gneiss["jobs"].append(job_data)
+
     project_data = {
         'id': project.id,
         'muscle_job': has_muscle_job,
@@ -1315,6 +1355,7 @@ def project_info(request):
         'dada2': dada2,
         'rarefaction': rarefaction,
         'coremetrics': coremetrics,
+        'gneiss': gneiss,
         'used_coremetrics_metadata': used_metadata_file_id,
     }
     return JsonResponse({'success': 'Project retrieved', 'project': project_data})
