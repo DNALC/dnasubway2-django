@@ -1145,7 +1145,6 @@ def project_info(request):
                 summary_path = demux_job.demux_result.demux_summary_qzv.name
             demux["running"] = running
             demux["id"] = demux_job.id
-            demux["uuid"] = demux_job.uuid
             demux["status"] = demux_job.status
             if rand_samples:
                 demux["randomSamples"] = rand_samples
@@ -1159,7 +1158,6 @@ def project_info(request):
             for job in dada2_jobs:
                 job_data = {
                     "id": job.id,
-                    "uuid": job.uuid,
                     "status": job.status,
                     "primary": job.primary,
                 }
@@ -1206,7 +1204,6 @@ def project_info(request):
             for job in rarefaction_jobs:
                 job_data = {
                     "id": job.id,
-                    "uuid": job.uuid,
                     "status": job.status,
                 }
 
@@ -1237,7 +1234,6 @@ def project_info(request):
             for job in coremetrics_jobs:
                 job_data = {
                     "id": job.id,
-                    "uuid": job.uuid,
                     "status": job.status,
                     "primary": job.primary,
                 }
@@ -1306,7 +1302,6 @@ def project_info(request):
             for job in gneiss_jobs:
                 job_data = {
                     "id": job.id,
-                    "uuid": job.uuid,
                     "status": job.status,
                 }
 
@@ -5418,7 +5413,7 @@ def job_info(request):
     if not job_details:
         return JsonResponse({'error': 'No data found for job'}, status=400)
 
-    return JsonResponse(job_details.to_dict(), safe=False, status=200)
+    return JsonResponse({'job_details': job_details}, status=200)
 
 def upload_cyverse_metabarcoding(request):
     parsed_data = parse_user_project_data(request)

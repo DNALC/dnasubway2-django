@@ -726,6 +726,22 @@ def get_file_content(tapis, job_uuid, file_path):
     content = tapis.jobs.getJobOutputDownload(jobUuid=job_uuid, outputPath=file_path)
     return content
 
+def tapisresult_to_json_serializer(result):
+    if type(result) in [str, int, float, type(None), bool]: return result
+
+    if type(result) == list:
+        modified_result = []
+        for res in result:
+            modified_result.append(tapisresult_to_json_serializer(res))
+
+        return modified_result
+
+    modified_result = result.__dict__
+    for prop in modified_result:
+        modified_result[prop] = tapisresult_to_json_serializer(modified_result[prop])
+
+    return modified_result
+
 def get_user_job_status(job):
     if not job or not job.user or not job.user.username or not job.uuid or job.status == "STARTING":
         return None
@@ -736,7 +752,7 @@ def get_user_job_status(job):
     tapis = connect_to_tapis(username, user_token)
     try:
         job_details = tapis.jobs.getJob(jobUuid=job_uuid)
-        return job_details
+        return tapisresult_to_json_serializer(job_details)
     except Exception as e:
         return None
 
