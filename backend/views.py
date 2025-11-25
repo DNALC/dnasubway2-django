@@ -1268,7 +1268,12 @@ def project_info(request):
             if finished_coremetrics_jobs.exists():
                 primary_coremetrics_jobs = finished_coremetrics_jobs.filter(primary=True)
                 primary_coremetrics_job = primary_coremetrics_jobs.first() if primary_coremetrics_jobs.exists() else finished_coremetrics_jobs.first()
-            used_dada2_job = getattr(primary_coremetrics_job, "dada2_job", None) if primary_coremetrics_job else None
+            primary_coremetrics_detail = (
+                getattr(primary_coremetrics_job, "coremetrics_detail", None)
+                if primary_coremetrics_job
+                else None
+            )
+            used_dada2_job = getattr(primary_coremetrics_detail, "dada2_job", None) if primary_coremetrics_detail else None
             used_dada2_job_detail = (
                 Dada2JobDetail.objects.filter(job=used_dada2_job).first()
                 if used_dada2_job
@@ -5239,10 +5244,17 @@ def gneiss(request):
     else:
         coremetrics_job = finished_coremetrics_jobs.first()
 
-    if not coremetrics_job or not coremetrics_job.dada2_job:
+    if not coremetrics_job:
+        return JsonResponse({'error': 'No complete core metrics job found for this project.'}, status=400)
+
+    coremetrics_detail = getattr(coremetrics_job, "coremetrics_detail", None)
+    if not coremetrics_detail:
+        return JsonResponse({'error': 'No coremetrics detail found for this job.'}, status=400)
+
+    dada2_job = getattr(coremetrics_detail, "dada2_job", None)
+    if not dada2_job:
         return JsonResponse({'error': 'No dada2 job found for this core metrics job for this project.'}, status=400)
 
-    dada2_job = coremetrics_job.dada2_job
     coremetrics_result = CoreMetricsResult.objects.filter(job=coremetrics_job).first()
     dada2_result = Dada2Result.objects.filter(job=dada2_job).first()
 
