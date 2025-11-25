@@ -5418,7 +5418,7 @@ def job_info(request):
     if not job_details:
         return JsonResponse({'error': 'No data found for job'}, status=400)
 
-    return JsonResponse(job_details, safe=False, status=200)
+    return JsonResponse(job_details.to_dict(), safe=False, status=200)
 
 def upload_cyverse_metabarcoding(request):
     parsed_data = parse_user_project_data(request)
