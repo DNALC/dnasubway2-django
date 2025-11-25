@@ -1145,6 +1145,7 @@ def project_info(request):
                 summary_path = demux_job.demux_result.demux_summary_qzv.name
             demux["running"] = running
             demux["id"] = demux_job.id
+            demux["uuid"] = demux_job.uuid
             demux["status"] = demux_job.status
             if rand_samples:
                 demux["randomSamples"] = rand_samples
@@ -1158,6 +1159,7 @@ def project_info(request):
             for job in dada2_jobs:
                 job_data = {
                     "id": job.id,
+                    "uuid": job.uuid,
                     "status": job.status,
                     "primary": job.primary,
                 }
@@ -1204,6 +1206,7 @@ def project_info(request):
             for job in rarefaction_jobs:
                 job_data = {
                     "id": job.id,
+                    "uuid": job.uuid,
                     "status": job.status,
                 }
 
@@ -1234,7 +1237,9 @@ def project_info(request):
             for job in coremetrics_jobs:
                 job_data = {
                     "id": job.id,
+                    "uuid": job.uuid,
                     "status": job.status,
+                    "primary": job.primary,
                 }
 
                 # Coremetrics parameters from CoremetricsJobDetail
@@ -1301,6 +1306,7 @@ def project_info(request):
             for job in gneiss_jobs:
                 job_data = {
                     "id": job.id,
+                    "uuid": job.uuid,
                     "status": job.status,
                 }
 
@@ -5360,6 +5366,39 @@ def gneiss(request):
     )
 
     return JsonResponse({'job_uuid': job.uuid, 'status': job.status})
+
+def set_job_primary(request):
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+    data = parsed_data['data']
+    job_id = data.get('job_id', 0)
+
+    try:
+        job = Job.objects.get(id=job_id)
+    except Job.DoesNotExist:
+        return JsonResponse({'error': 'Job not found'}, status=400)
+
+    if job.user != request.user:
+        return JsonResponse({'error': 'You do not have permission for this job'}, status=400)
+
+    if job.status != "FINISHED":
+        return JsonResponse({'error': 'Job is not finished'}, status=400)
+
+    if not job.project:
+        return JsonResponse({'error': 'Job not tied to project'}, status=400)
+
+    Job.objects.filter(
+        appId=job.appId,
+        project=job.project,
+        status="FINISHED",
+        primary=True
+    ).update(primary=False)
+
+    job.primary = True
+    job.save()
+
+    return JsonResponse({'success': f'Job {job_id} is now set as primary'})
 
 def upload_cyverse_metabarcoding(request):
     parsed_data = parse_user_project_data(request)

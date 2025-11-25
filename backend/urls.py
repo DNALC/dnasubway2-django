@@ -97,6 +97,7 @@ urlpatterns = [
     path("backend/rarefaction", rarefaction, name='rarefaction'),
     path("backend/coremetrics", coremetrics, name='coremetrics'),
     path("backend/gneiss", gneiss, name='gneiss'),
+    path("backend/set_job_primary", set_job_primary, name='set_job_primary'),
 ]
 
 
