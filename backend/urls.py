@@ -98,6 +98,7 @@ urlpatterns = [
     path("backend/coremetrics", coremetrics, name='coremetrics'),
     path("backend/gneiss", gneiss, name='gneiss'),
     path("backend/set_job_primary", set_job_primary, name='set_job_primary'),
+    path("backend/job_info", job_info, name='job_info'),
 ]
 
 

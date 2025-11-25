@@ -726,6 +726,18 @@ def get_file_content(tapis, job_uuid, file_path):
     content = tapis.jobs.getJobOutputDownload(jobUuid=job_uuid, outputPath=file_path)
     return content
 
+def get_user_job_status(job):
+    if not job or not job.user or not job.user.username or not job.uuid or job.status == "STARTING":
+        return None
+    username = job.user.username
+    job_uuid = job.uuid
+    user_token = generate_user_token(username)
+    tapis = connect_to_tapis(username, user_token)
+    try:
+        job_details = tapis.jobs.getJob(jobUuid=job_uuid)
+        return job_details
+    except Exception as e:
+        return None
 
 def extract_sequences(fasta_content):
     try:
