@@ -1080,6 +1080,7 @@ def project_info(request):
     rarefaction = {}
     coremetrics = {}
     metadata = {}
+    used_metadata_file_id = None
     max_rarefaction_depth = 100000
     trim_table_found = False
     primary_found = False
@@ -1124,7 +1125,6 @@ def project_info(request):
         dada2 = {"running": False, "jobs": []}
         rarefaction = {"running": False, "jobs": []}
         coremetrics = {"running": False, "jobs": []}
-        used_metadata_file_id = None
         if demux_job:
             running = demux_job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"]
 
