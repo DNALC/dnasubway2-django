@@ -1124,6 +1124,7 @@ def project_info(request):
         dada2 = {"running": False, "jobs": []}
         rarefaction = {"running": False, "jobs": []}
         coremetrics = {"running": False, "jobs": []}
+        used_metadata_file_id = None
         if demux_job:
             running = demux_job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"]
 
@@ -1262,6 +1263,22 @@ def project_info(request):
                     job_data["results"] = results
 
                 coremetrics["jobs"].append(job_data)
+            finished_coremetrics_jobs = coremetrics_jobs.filter(status="FINISHED")
+            primary_coremetrics_job = None
+            if finished_coremetrics_jobs.exists():
+                primary_coremetrics_jobs = finished_coremetrics_jobs.filter(primary=True)
+                primary_coremetrics_job = primary_coremetrics_jobs.first() if primary_coremetrics_jobs.exists() else finished_coremetrics_jobs.first()
+            used_dada2_job = getattr(primary_coremetrics_job, "dada2_job", None) if primary_coremetrics_job else None
+            used_dada2_job_detail = (
+                Dada2JobDetail.objects.filter(job=used_dada2_job).first()
+                if used_dada2_job
+                else None
+            )
+            used_metadata_file_id = (
+                getattr(used_dada2_job_detail.metadata_file, "id", None)
+                if used_dada2_job_detail and used_dada2_job_detail.metadata_file
+                else None
+            )
 
     project_data = {
         'id': project.id,
@@ -1293,6 +1310,7 @@ def project_info(request):
         'dada2': dada2,
         'rarefaction': rarefaction,
         'coremetrics': coremetrics,
+        'used_coremetrics_metadata': used_metadata_file_id,
     }
     return JsonResponse({'success': 'Project retrieved', 'project': project_data})
 
