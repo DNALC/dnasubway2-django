@@ -1,7 +1,7 @@
 from django.conf import settings
 import os
 import re
-from .models import BasecallingJob, PodFile, NanoporeSequence, UserNanoporeSequence, JobPodFile, DataFolder, NanoporeSequenceFolder, DemuxResult, Dada2Result, RarefactionResult, CoreMetricsResult, Job
+from .models import BasecallingJob, PodFile, NanoporeSequence, UserNanoporeSequence, JobPodFile, DataFolder, NanoporeSequenceFolder, DemuxResult, Dada2Result, RarefactionResult, CoreMetricsResult, GneissResult, Job
 from .utils import (
     shelve_instance,
     ensure_instance_ready,
@@ -429,6 +429,67 @@ def check_coremetrics_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
     job_obj.save(update_fields=["status"])
     tprint("CoreMetrics job status:", current_status)
 
+def check_gneiss_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
+    tprint("Checking gneiss job " + job_uuid)
+    status = get_job_status(tapis, job_uuid)
+    if not status:
+        return
+    current_status = status.get("status")
+    tprint("Current status: " + current_status)
+    user = job_obj.user
+
+    if current_status == "FINISHED":
+        job_obj.status = "FINISHING"
+        job_obj.save(update_fields=["status"])
+        # List files from Tapis job archive
+        all_files = list_all_files(tapis, job_uuid)
+
+        heatmap_qzv_file = None
+        heatmap_qzv_archived = False
+
+        for file_path in all_files:
+            if "heatmap" in file_path and file_path.endswith(".qzv"):
+                heatmap_qzv_file = file_path
+        if heatmap_qzv_file:
+            gneiss_result, _ = GneissResult.objects.get_or_create(job=job_obj)
+            def download_and_save(remote_path, field_name, filename):
+                content = download_tapis_file("js2_dnasubway2", user_token, remote_path)
+                if content:
+                    getattr(gneiss_result, field_name).save(
+                        filename,
+                        ContentFile(content),
+                        save=False
+                    )
+                    return True
+                return False
+
+            if heatmap_qzv_file:
+                tprint(f"GET {heatmap_qzv_file}")
+                heatmap_qzv_archived = download_and_save(
+                    f"scratch/{user.username}/job-{job_uuid}" + heatmap_qzv_file,
+                    "heatmap",
+                    f"{gneiss_result.id}-Heatmap.qzv"
+                )
+
+            gneiss_result.save()
+
+            # cleanup remote job dir
+            try:
+                admin_tapis.files.delete(
+                    systemId="js2_dnasubway2",
+                    path=f"scratch/{user.username}/job-{job_uuid}/",
+                )
+                tprint(f"Deleted /scratch/{user.username}/job-{job_uuid}/ from Tapis")
+            except Exception as e:
+                tprint(f"Failed to delete job files for {job_uuid}: {e}")
+        if not heatmap_qzv_archived:
+            job_obj.status = "FAILED"
+            job_obj.save(update_fields=["status"])
+            return
+    job_obj.status = current_status
+    job_obj.save(update_fields=["status"])
+    tprint("Gneiss job status:", current_status)
+
 def check_job(tapis, job_uuid, job_obj, admin_tapis):
     tprint("Checking job " + job_uuid)
     status = get_job_status(tapis, job_uuid)
@@ -524,6 +585,11 @@ def poll_active_jobs():
         .filter(appId=settings.QIIME2_COREMETRICS_APP_ID)
         .exclude(status__in=['FINISHED', 'CANCELLED', 'FAILED', 'STOPPED', 'STARTING', 'FAILED_BOOT', 'FINISHING'])
     )
+    gneiss_jobs = (
+        Job.objects
+        .filter(appId=settings.QIIME2_GNEISS_APP_ID)
+        .exclude(status__in=['FINISHED', 'CANCELLED', 'FAILED', 'STOPPED', 'STARTING', 'FAILED_BOOT', 'FINISHING'])
+    )
     if demux_jobs.exists():
         usernames = set(j.user.username for j in demux_jobs)
 
@@ -572,6 +638,18 @@ def poll_active_jobs():
 
             for job in user_coremetrics_jobs:
                 check_coremetrics_job(tapis, user_token, job.uuid, job, admin_tapis)
+    if gneiss_jobs.exists():
+        usernames = set(j.user.username for j in gneiss_jobs)
+
+        for username in usernames:
+            tprint("Checking gneiss jobs for user " + username)
+            user_gneiss_jobs = [j for j in gneiss_jobs if j.user.username == username]
+
+            user_token = generate_user_token(username)
+            tapis = connect_to_tapis(username, user_token)
+
+            for job in user_gneiss_jobs:
+                check_gneiss_job(tapis, user_token, job.uuid, job, admin_tapis)
     # 1. Query active jobs
     jobs = (
         BasecallingJob.objects
