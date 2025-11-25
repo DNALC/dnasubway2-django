@@ -731,6 +731,7 @@ def get_user_job_status(job):
         return None
     username = job.user.username
     job_uuid = job.uuid
+    get_service_token()
     user_token = generate_user_token(username)
     tapis = connect_to_tapis(username, user_token)
     try:
