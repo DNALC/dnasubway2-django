@@ -538,6 +538,14 @@ class GneissJobDetail(models.Model):
     def __str__(self):
         return f"Gneiss details for Job {self.job.uuid}"
 
+class GneissResult(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="gneiss_result")
+
+    heatmap = models.FileField(upload_to="gneiss_files/", blank=True, null=True)
+
+    def __str__(self):
+        return f"Gneiss results for Job {self.job.uuid}"
+
 class JobPodFile(models.Model):
     job = models.ForeignKey(Job, on_delete=models.CASCADE)
     podfile = models.ForeignKey(PodFile, on_delete=models.CASCADE)
