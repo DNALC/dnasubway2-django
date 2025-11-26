@@ -1180,14 +1180,14 @@ def project_info(request):
                 if hasattr(job, "dada2_result"):
                     result = job.dada2_result
                     if result.trim_table_qzv:
-                        results["table"] = result.trim_table_qzv.name
+                        results["Trim Table"] = result.trim_table_qzv.name
                         if not trim_table_found or (job.primary and not primary_found):
                             max_rarefaction_depth = get_max_rarefaction_depth(result.trim_table_qzv.name)
                         trim_table_found = True
                     if result.stats_qzv:
-                        results["stats"] = result.stats_qzv.name
+                        results["Stats"] = result.stats_qzv.name
                     if result.rep_seqs_qza:
-                        results["repseqs"] = result.rep_seqs_qzv.name
+                        results["Representative Sequences"] = result.rep_seqs_qzv.name
                 if results:
                     job_data["results"] = results
 
@@ -1221,7 +1221,7 @@ def project_info(request):
                 if hasattr(job, "rarefaction_result"):
                     result = job.rarefaction_result
                     if result.alpha_rarefaction_qzv:
-                        results["plot"] = result.alpha_rarefaction_qzv.name
+                        results["Alpha Rarefaction Plot"] = result.alpha_rarefaction_qzv.name
                 if results:
                     job_data["results"] = results
 
