@@ -1002,7 +1002,7 @@ def submit_demux_job_task(job_id, rand_samples='1000'):
 
     job_params = {
         "name": "demux",
-        "appId": settings.QIIME2_DEMUX_APP_ID,
+        "appId": settings.QIIME2_DEMUX_APP_TAPIS_ID,
         "appVersion": settings.QIIME2_DEMUX_APP_VERSION,
         "fileInputs": fileInputs,
         "parameterSet": {
@@ -1053,7 +1053,7 @@ def submit_dada2_job_task(job_id, demux_qza_path, metadata_path, paired_flag,
 
     job_params = {
         "name": "dada2",
-        "appId": settings.QIIME2_DADA2_APP_ID,
+        "appId": settings.QIIME2_DADA2_APP_TAPIS_ID,
         "appVersion": settings.QIIME2_DADA2_APP_VERSION,
         "fileInputs": fileInputs,
         "parameterSet": {
@@ -1117,7 +1117,7 @@ def submit_rarefaction_job_task(job_id, rooted_tree_qza_path, trim_table_qza_pat
 
     job_params = {
         "name": "rarefaction",
-        "appId": settings.QIIME2_RAREFACTION_APP_ID,
+        "appId": settings.QIIME2_RAREFACTION_APP_TAPIS_ID,
         "appVersion": settings.QIIME2_RAREFACTION_APP_VERSION,
         "fileInputs": fileInputs,
         "parameterSet": {
@@ -1190,7 +1190,7 @@ def submit_coremetrics_job_task(job_id, rooted_tree_qza_path, trim_table_qza_pat
 
     job_params = {
         "name": "coremetrics",
-        "appId": settings.QIIME2_COREMETRICS_APP_ID,
+        "appId": settings.QIIME2_COREMETRICS_APP_TAPIS_ID,
         "appVersion": settings.QIIME2_COREMETRICS_APP_VERSION,
         "fileInputs": fileInputs,
         "parameterSet": {
@@ -1251,7 +1251,7 @@ def submit_gneiss_job_task(job_id, trim_table_qza_path, taxonomy_qza_path, metad
 
     job_params = {
         "name": "gneiss",
-        "appId": settings.QIIME2_GNEISS_APP_ID,
+        "appId": settings.QIIME2_GNEISS_APP_TAPIS_ID,
         "appVersion": settings.QIIME2_GNEISS_APP_VERSION,
         "fileInputs": fileInputs,
         "parameterSet": {
