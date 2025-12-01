@@ -12,6 +12,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.core.exceptions import SuspiciousFileOperation
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 import io
 import json
@@ -5448,6 +5449,11 @@ def upload_cyverse_metabarcoding(request):
         return JsonResponse({"error": "You cannot upload metabarcoding files while demuliplexing is running or after it succeeds"}, status=400)
 
     created_files = []
+    validated_list = []
+
+    FILENAME_REGEX = re.compile(
+        rf'^[A-Za-z0-9\.-]+_[^_]+_L[0-9]{{3}}_R{"[12]" if project.read_type == "paired" else "1"}_001\.fastq\.gz$'
+    )
 
     for file_uri in selectedFiles:
         # Expected format: tapis://data.cyverse.org/home/shared/.../filename.fastq.gz
@@ -5456,9 +5462,6 @@ def upload_cyverse_metabarcoding(request):
             return JsonResponse({'error': f"Invalid file extension for {filename}"}, status=400)
 
         # Validate filename pattern (like upload_metabarcoding)
-        FILENAME_REGEX = re.compile(
-            rf'^[A-Za-z0-9\.-]+_[^_]+_L[0-9]{{3}}_R{"[12]" if project.read_type == "paired" else "1"}_001\.fastq\.gz$'
-        )
         if not FILENAME_REGEX.match(filename):
             return JsonResponse({'error': f"Invalid filename format: {filename}"}, status=400)
 
@@ -5468,36 +5471,53 @@ def upload_cyverse_metabarcoding(request):
         ).exists():
             continue
 
-        try:
-            file_content = download_cyverse_file(jwt, file_uri)
-            if not file_content:
+        validated_list.append((file_uri, filename))
+
+    if not validated_list:
+        return JsonResponse({"error": "No new files created (all duplicates skipped)"}, status=400)
+
+    download_results = {}
+    max_workers = min(12, len(validated_list))
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_map = {
+            executor.submit(download_cyverse_file, jwt, file_uri): (file_uri, filename)
+            for file_uri, filename in validated_list
+        }
+
+        for future in as_completed(future_map):
+            file_uri, filename = future_map[future]
+
+            try:
+                content = future.result()
+            except Exception as e:
+                return JsonResponse({"error": f"Error downloading {file_uri}: {str(e)}"}, status=500)
+
+            if not content:
                 return JsonResponse({"error": f"Failed to fetch {file_uri} from CyVerse"}, status=400)
 
-            metabarcoding_file = MetabarcodingFile.objects.create(
-                user=request.user,
-                name=filename,
-            )
+            download_results[filename] = content
 
-            # Save file locally using Django storage
-            metabarcoding_file.file.save(
-                f"{metabarcoding_file.id}.fastq.gz",
-                ContentFile(file_content),
-                save=True
-            )
+    for filename, content in download_results.items():
+        metabarcoding_file = MetabarcodingFile.objects.create(
+            user=request.user,
+            name=filename,
+        )
 
-            # Link to project
-            ProjectMetabarcodingFile.objects.create(
-                project=project,
-                metabarcoding_file=metabarcoding_file
-            )
+        # Save file locally using Django storage
+        metabarcoding_file.file.save(
+            f"{metabarcoding_file.id}.fastq.gz",
+            ContentFile(content),
+            save=True
+        )
 
-            created_files.append(metabarcoding_file.id)
+        # Link to project
+        ProjectMetabarcodingFile.objects.create(
+            project=project,
+            metabarcoding_file=metabarcoding_file
+        )
 
-        except Exception as e:
-            return JsonResponse({"error": str(e)}, status=500)
-
-    if not created_files:
-        return JsonResponse({"error": "No new files created (all duplicates skipped)"}, status=400)
+        created_files.append(metabarcoding_file.id)
 
     metadata_files = MetadataFile.objects.filter(
         project_links__project=project
