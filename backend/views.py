@@ -3263,6 +3263,53 @@ def list_pending_permission_requests(request):
 
     return JsonResponse({'requests': data}, status=200)
 
+def list_latest_app_jobs(request):
+    if request.method != "GET":
+        return JsonResponse({'error': 'GET method required'}, status=405)
+
+    if not request.user or not request.user.is_authenticated:
+        return JsonResponse({'error': 'Authentication required'}, status=401)
+
+    if not request.user.is_superuser:
+        return JsonResponse({'error': 'Superuser access required'}, status=403)
+
+    qs = Job.objects.exclude(status="STARTING").filter(appId__startswith="ub_")
+
+    username = request.GET.get("username")
+    project_id = request.GET.get("project_id")
+    task = request.GET.get("task")
+    status = request.GET.get("status")
+
+    if username:
+        qs = qs.filter(user__username=username)
+
+    if project_id:
+        qs = qs.filter(project_id=project_id)
+
+    if task:
+        qs = qs.filter(appId=task)
+
+    if status:
+        qs = qs.filter(status=status)
+
+    data = [
+        {
+            'email': job.user.email,
+            'username': job.user.username,
+            'first_name': job.user.first_name,
+            'last_name': job.user.last_name,
+            'project_id': job.project.id,
+            'project_name': job.project.title,
+            'uuid': job.uuid,
+            'status': job.status,
+            'task_name': job.appId,
+        }
+        for job in qs
+    ]
+
+    return JsonResponse({'jobs': data}, status=200)
+
+
 # Helper function
 def toggle_datafile_boolean_field(request, field_name):
     parsed_data = parse_user_data(request)
