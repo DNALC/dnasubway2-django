@@ -3300,7 +3300,7 @@ def list_latest_app_jobs(request):
             'last_name': job.user.last_name,
             'project_id': job.project.id,
             'project_name': job.project.title,
-            'uuid': job.uuid,
+            'jid': job.id,
             'status': job.status,
             'task_name': job.appId,
         }
