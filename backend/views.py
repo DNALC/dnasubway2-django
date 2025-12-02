@@ -5488,7 +5488,7 @@ def cancel_job(request):
     if not job_stopped:
         return JsonResponse({'error': 'Could not stop job'}, status=400)
 
-    return JsonResponse({'sucess': "Job stopped successfully"}, status=200)
+    return JsonResponse({'success': "Job stopped successfully"}, status=200)
 
 def upload_cyverse_metabarcoding(request):
     parsed_data = parse_user_project_data(request)
