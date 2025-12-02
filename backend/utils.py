@@ -756,6 +756,22 @@ def get_user_job_status(job):
     except Exception as e:
         return None
 
+def stop_job(job):
+    if not job or not job.user or not job.user.username or not job.uuid or job.status == "STARTING":
+    	return False
+    if job.status in ["FINISHED", "FAILED", "STOPPED", "CANCELLED"]:
+        return True
+    username = job.user.username
+    job_uuid = job.uuid
+    get_service_token()
+    user_token = generate_user_token(username)
+    tapis = connect_to_tapis(username, user_token)
+    try:
+        tapis.jobs.cancelJob(jobUuid=job_uuid)
+        return True
+    except Exception as e:
+        return False
+
 def extract_sequences(fasta_content):
     try:
         fasta_io = StringIO(fasta_content)

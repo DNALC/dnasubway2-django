@@ -27,7 +27,7 @@ import time
 import uuid
 #from django.shortcuts import render
 from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail, Dada2Result, RarefactionJobDetail, CoreMetricsJobDetail, CoreMetricsResult, GneissJobDetail
-from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file, extract_qiime2_metadata_sample_ids, get_max_rarefaction_depth, get_user_job_status
+from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file, extract_qiime2_metadata_sample_ids, get_max_rarefaction_depth, get_user_job_status, stop_job
 import gzip
 import shutil
 from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task, submit_rarefaction_job_task, submit_coremetrics_job_task, submit_gneiss_job_task  # Celery task
@@ -5464,6 +5464,31 @@ def job_info(request):
         return JsonResponse({'error': 'No data found for job'}, status=400)
 
     return JsonResponse({'job_details': job_details}, status=200)
+
+def cancel_job(request):
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    job_id = data.get('jid')
+
+    if not job_id:
+        return JsonResponse({'error': 'Job not found'}, status=404)
+
+    try:
+        job = Job.objects.get(id=job_id)
+    except Job.DoesNotExist:
+        return JsonResponse({'error': 'Job not found'}, status=404)
+
+    if job.user != request.user and not request.user.is_superuser:
+        return JsonResponse({'error': 'You do not have permission for this job'}, status=400)
+
+    job_stopped = stop_job(job)
+    if not job_stopped:
+        return JsonResponse({'error': 'Could not stop job'}, status=400)
+
+    return JsonResponse({'sucess': "Job stopped successfully"}, status=200)
 
 def upload_cyverse_metabarcoding(request):
     parsed_data = parse_user_project_data(request)
