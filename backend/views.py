@@ -3292,6 +3292,8 @@ def list_latest_app_jobs(request):
     if status:
         qs = qs.filter(status=status)
 
+    qs = qs.order_by("-id")[:100]
+
     data = [
         {
             'email': job.user.email,
