@@ -2146,6 +2146,29 @@ def get_sample_sets(request):
     # Return the data as JSON
     return JsonResponse(grouped_data)
 
+def validate_optional_int(value, field_name, min_val=None, max_val=None):
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return JsonResponse(
+            {'error': f'{field_name} must be an integer'},
+            status=400
+        )
+
+    if min_val is not None and value < min_val:
+        return JsonResponse(
+            {'error': f'{field_name} must be >= {min_val}'},
+            status=400
+        )
+
+    if max_val is not None and value > max_val:
+        return JsonResponse(
+            {'error': f'{field_name} must be <= {max_val}'},
+            status=400
+        )
+
+    return None
+
 def submit_fastp_job(request):
     parsed_data = parse_user_project_data(request)
     if 'error' in parsed_data:
@@ -2155,9 +2178,54 @@ def submit_fastp_job(request):
     project = parsed_data['project']
 
     nanopore_sequence_ids = data.get('nanopore_sequence_id')
+    reads_to_process = data.get('reads_to_process')
+    qualified_quality_phred = data.get('qualified_quality_phred')
+    length_required = data.get('length_required')
+    length_limit = data.get('length_limit')
+    report_title = data.get('report_title')
 
     if not nanopore_sequence_ids:
         return JsonResponse({'error': 'nanopore_sequence_id is required'}, status=400)
+
+
+    if reads_to_process is not None:
+        error = validate_optional_int(
+            reads_to_process, 'reads_to_process', 0, 100
+        )
+        if error:
+            return error
+
+    if qualified_quality_phred is not None:
+        error = validate_optional_int(
+            qualified_quality_phred, 'qualified_quality_phred', 0, 40
+        )
+        if error:
+            return error
+
+    if length_required is not None:
+        error = validate_optional_int(
+            length_required, 'length_required', 1, 500
+        )
+        if error:
+            return error
+
+    if length_limit is not None:
+        error = validate_optional_int(
+            length_limit, 'length_limit', 0, 5000
+        )
+        if error:
+            return error
+
+        if length_limit > 0 and length_required is not None and length_limit < length_required:
+            return JsonResponse(
+                {
+                    'error': (
+                        'length_limit must be greater than or equal to '
+                        'length_required when length_limit > 0'
+                    )
+                },
+                status=400
+            )
 
     # Normalize to a list if a single ID is provided
     if isinstance(nanopore_sequence_ids, int):
@@ -2186,7 +2254,7 @@ def submit_fastp_job(request):
         )
 
         # Queue the fastp task asynchronously with Celery
-        run_fastp_task.delay(fastp_job.id)
+        run_fastp_task.delay(fastp_job.id, reads_to_process, qualified_quality_phred, length_required, length_limit, report_title)
 
         # Track the created job
         jobs_created.append(nanopore_sequence_id)

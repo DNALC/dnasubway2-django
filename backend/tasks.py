@@ -17,7 +17,7 @@ from django.conf import settings
 import tempfile
 
 @shared_task
-def run_fastp_task(fastp_job_id):
+def run_fastp_task(fastp_job_id, reads_to_process, qualified_quality_phred, length_required, length_limit, report_title):
     # Retrieve the FastpJob
     fastp_job = FastpJob.objects.get(id=fastp_job_id)
     project_nanopore_sequence = ProjectNanoporeSequence.objects.get(
@@ -26,6 +26,7 @@ def run_fastp_task(fastp_job_id):
     )
 
     nanopore_sequence_file = project_nanopore_sequence.nanopore_sequence.file.name
+    report_title = report_title or project_nanopore_sequence.nanopore_sequence.name
 
     # Use the ID of the ProjectNanoporeSequence for unique filenames
     file_base_name = str(project_nanopore_sequence.id)
@@ -44,8 +45,20 @@ def run_fastp_task(fastp_job_id):
         '-i', nanopore_sequence_file,
         '-o', filtered_file,
         '-j', json_file,
-        '-h', html_file
+        '-h', html_file,
+        '-R', report_title,
     ]
+    if reads_to_process is not None:
+        fastp_command.extend(['--reads_to_process', str(reads_to_process)])
+
+    if qualified_quality_phred is not None:
+        fastp_command.extend(['-q', str(qualified_quality_phred)])
+
+    if length_required is not None:
+        fastp_command.extend(['-l', str(length_required)])
+
+    if length_limit is not None:
+        fastp_command.extend(['--length_limit', str(length_limit)])
     try:
         subprocess.run(fastp_command, check=True)
 
