@@ -759,6 +759,12 @@ def feedback(request):
 
     comments = data.get('comments', '')
 
+    if not comments:
+        return JsonResponse(
+            {"error": "Enter comments"},
+            status=400
+        )
+
     x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
     client_ip = ""
     if x_forwarded_for:
