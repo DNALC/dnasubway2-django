@@ -716,6 +716,88 @@ def generate_guest_username():
     random_chars = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
     return f'guest_{random_chars}'
 
+def send_feedback_email(message):
+    try:
+        url = f"https://api.mailgun.net/v3/{getattr(settings, 'MAILGUN_DOMAIN')}/messages"
+        api_key = getattr(settings, 'MAILGUN_API_KEY')
+        from_email = getattr(settings, 'MAILGUN_FROM_EMAIL')
+
+        data = {
+            "from": from_email,
+            "to": ["dnalcadmin@cshl.edu"],
+            "cc": ["feitzin@cshl.edu", "williams@cshl.edu"],
+            "subject": "[DNA Subway 2.0] Feedback",
+            "text": message,
+        }
+
+        response = requests.post(url, auth=("api", api_key), data=data)
+
+        return response.status_code == 200
+
+    except Exception as e:
+        print(f"Error sending feedback email: {e}")
+        return False
+
+def feedback(request):
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+    user = request.user
+    data = parsed_data['data']
+
+
+    if not user or not hasattr(user, 'userprofile'):
+        return JsonResponse({'error': 'User profile not found'}, status=400)
+
+    username = user.username
+    email = user.email
+    name = (user.first_name + " " + user.last_name).strip()
+    subject = data.get('subject', 'General')
+
+    if subject not in ["General", "Site", "Content", "Technical", "Help", "Other"]:
+        subject = "General"
+
+    comments = data.get('comments', '')
+
+    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+    client_ip = ""
+    if x_forwarded_for:
+        client_ip = x_forwarded_for.split(",")[0].strip()
+    else:
+        client_ip = request.META.get("REMOTE_ADDR")
+
+    message = (
+        f"Name: {name}\n"
+        f"Username: {username}\n"
+        f"Email: {email}\n"
+        f"Client IP: {client_ip}\n"
+        f"Subject: {subject}\n"
+        f"Message:\n\n"
+        f"{comments}\n"
+    )
+
+    lowered = comments.lower()
+    contains_link = (
+        "http:" in lowered or
+        "https:" in lowered or
+        "bit.ly" in lowered
+    )
+
+    if contains_link:
+        return JsonResponse({
+            "success": "Feedback form submitted successfully"
+        })
+
+    sent = send_feedback_email(message)
+
+    if not sent:
+        return JsonResponse(
+            {"error": "Failed to send feedback email"},
+            status=400
+        )
+
+    return JsonResponse({"success": "Feedback form submitted successfully"})
+
 def create_project(request):
     parsed_data = parse_user_data(request)
     if 'error' in parsed_data:

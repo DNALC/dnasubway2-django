@@ -8,6 +8,7 @@ urlpatterns = [
     path('backend/logout', logout_view, name='logout'),
     path('backend/forgot', request_password_reset, name='forgot'),
     path('backend/reset', confirm_password_reset, name='reset'),
+    path('backend/feedback', feedback, name='feedback'),
     path('backend/token_user', get_user_by_reset_token, name='token_user'),
     path('backend/profile', get_user_fields, name='profile'),
     path('backend/guest', create_guest_user, name='guest'),
