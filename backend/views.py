@@ -6159,28 +6159,40 @@ def create_metadata_from_scratch(request):
     user = request.user
     project = parsed_data['project']
 
-    metabarcoding_files = (
-        ProjectMetabarcodingFile.objects
-        .filter(project=project)
-        .select_related('metabarcoding_file')
-    )
-
-    if not metabarcoding_files.exists():
-        return JsonResponse({'error': 'No metabarcoding files found for this project.'}, status=400)
-
-    FILENAME_REGEX = re.compile(
-        rf'^([A-Za-z0-9\.-]+)_[^_]+_L[0-9]{{3}}_R{"[12]" if project.read_type == "paired" else "1"}_001\.fastq\.gz$'
-    )
-
     # Collect unique sample names
     sample_ids = set()
-    for pmf in metabarcoding_files:
-        fname = pmf.metabarcoding_file.name.split('/')[-1]
-        match = FILENAME_REGEX.match(fname)
-        if match:
-            # Extract the part before the first underscore
-            prefix = match.group(1)
-            sample_ids.add(prefix)
+
+    if project.sequencing_type == "nanopore":
+        nanopore_sequences = ProjectNanoporeSequence.objects.filter(project=project) \
+            .select_related('nanopore_sequence') \
+            .order_by('nanopore_sequence__name')
+        if not nanopore_sequences.exists():
+            return JsonResponse({'error': 'No nanopore files found for this project.'}, status=400)
+        sample_ids = {
+            pns.nanopore_sequence.name
+            for pns in nanopore_sequences
+        }
+    else:
+        metabarcoding_files = (
+            ProjectMetabarcodingFile.objects
+            .filter(project=project)
+            .select_related('metabarcoding_file')
+        )
+
+        if not metabarcoding_files.exists():
+            return JsonResponse({'error': 'No metabarcoding files found for this project.'}, status=400)
+
+        FILENAME_REGEX = re.compile(
+            rf'^([A-Za-z0-9\.-]+)_[^_]+_L[0-9]{{3}}_R{"[12]" if project.read_type == "paired" else "1"}_001\.fastq\.gz$'
+        )
+
+        for pmf in metabarcoding_files:
+            fname = pmf.metabarcoding_file.name.split('/')[-1]
+            match = FILENAME_REGEX.match(fname)
+            if match:
+                # Extract the part before the first underscore
+                prefix = match.group(1)
+                sample_ids.add(prefix)
 
     # Choose a unique filename for the metadata
     existing_names = ProjectMetadataFile.objects.filter(project=project).values_list('metadata_file__name', flat=True)
