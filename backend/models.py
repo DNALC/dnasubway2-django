@@ -240,7 +240,7 @@ class ProjectMetadataFile(models.Model):
         unique_together = ("project", "metadata_file")
 
     def __str__(self):
-        return f"{self.project.name} → {self.metadata_file.name}"
+        return f"{self.project.title} → {self.metadata_file.name}"
 
 
 class DemuxJobInputFile(models.Model):
@@ -302,7 +302,7 @@ class ProjectMetabarcodingFile(models.Model):
         unique_together = ("project", "metabarcoding_file")
 
     def __str__(self):
-        return f"{self.project.name} → {self.metabarcoding_file.name}"
+        return f"{self.project.title} → {self.metabarcoding_file.name}"
 
 class PodFile(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -684,7 +684,7 @@ class FastpJob(models.Model):
     #    unique_together = ('nanopore_sequence', 'project')
 
     def __str__(self):
-        return f"FastpJob for {self.nanopore_sequence.name} in project {self.project.name}"
+        return f"FastpJob for {self.nanopore_sequence.name} in project {self.project.title}"
 
 class FastpResult(models.Model):
     project_nanopore_sequence = models.ForeignKey(ProjectNanoporeSequence, on_delete=models.CASCADE)
