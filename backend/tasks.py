@@ -1001,9 +1001,14 @@ def submit_demux_job_task(job_id, rand_samples='1000'):
     # Prepare fileInputs
     metabarcoding_files = ProjectMetabarcodingFile.objects.filter(project=project).select_related('metabarcoding_file')
     fileInputs = []
+    seen_names = set()
     for f in metabarcoding_files:
         mf = f.metabarcoding_file
         filename = mf.name
+        if filename in seen_names:
+            continue
+        seen_names.add(filename)
+
         fileInputs.append({
             "name": filename,
             "sourceUrl": settings.REACT_URL + "backend/" + mf.file.name,
