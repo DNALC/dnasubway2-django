@@ -2135,6 +2135,11 @@ def process_nanopore_sample_set(request):
                 'error': str(e)
             })
 
+    metadata_files = MetadataFile.objects.filter(
+        project_links__project=project
+    )
+
+    metadata_files.update(validated=False)
     return JsonResponse({'results': responses, 'status': 'success'}, status=200)
 
 def get_nanopore_sample_sets(request):
@@ -2802,6 +2807,11 @@ def upload_nanopore_directory(request):
 
     # Return a response indicating the process result
     if json_resp['sequences_added']:
+        metadata_files = MetadataFile.objects.filter(
+            project_links__project=project
+        )
+
+        metadata_files.update(validated=False)
         return JsonResponse({'success': 'Sequences processed and added successfully.', 'warnings': warnings + json_resp['warnings']})
     else:
         return JsonResponse({"status": "error", 'message': "\n" + "\n".join(json_resp['warnings'])})
@@ -2866,6 +2876,11 @@ def upload_nanopore_files(request):
     print(temp_dir)
     #shutil.rmtree(temp_dir)
     # Return a response indicating the process result
+    metadata_files = MetadataFile.objects.filter(
+        project_links__project=project
+    )
+
+    metadata_files.update(validated=False)
     return JsonResponse({'success': 'Sequences processed and added successfully.'})
 
 def rename_nanopore_file(request):
@@ -2914,6 +2929,11 @@ def rename_nanopore_file(request):
             data_file.associated_fasta.name = fasta_file_path
         data_file.save()
 
+    metadata_files = MetadataFile.objects.filter(
+        project_links__project=project
+    )
+
+    metadata_files.update(validated=False)
     return JsonResponse({'success': 'Sequence renamed.'})
 
 def get_azenta_file_quality(request):
@@ -4047,6 +4067,11 @@ def delete_nanopore_file(request):
     if not in_sample_directory and not linked_to_other_projects and not is_user_sequence:
         nanopore_sequence.delete()
     pns.delete()
+    metadata_files = MetadataFile.objects.filter(
+        project_links__project=project
+    )
+
+    metadata_files.update(validated=False)
     return JsonResponse({'success': 'Sequence removed successfully'})
 
 def get_tutorial_status(request):
@@ -4331,6 +4356,11 @@ def upload_user_nanopore_file(request):
 
     if overall_status == "error":
         return JsonResponse({'results': responses, 'error': 'All files failed to upload', 'status': 'error'}, status=400)
+    metadata_files = MetadataFile.objects.filter(
+        project_links__project=project
+    )
+
+    metadata_files.update(validated=False)
     return JsonResponse({'results': responses, 'status': 'success'}, status=200)
 
 def upload_pod5(request):
