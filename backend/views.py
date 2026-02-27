@@ -5997,6 +5997,51 @@ def validate_metadata(request):
     if not valid:
         return JsonResponse({"error": "Invalid metadata file", "warnings": errors}, status=400)
 
+    if project.sequencing_type == "nanopore":
+        # Get all ProjectNanoporeSequences for the project and retrieve their related NanoporeSequences
+        nanopore_sequences = ProjectNanoporeSequence.objects.filter(project=project) \
+            .select_related('nanopore_sequence') \
+            .order_by('nanopore_sequence__name')
+        if not nanopore_sequences.exists():
+            return JsonResponse({'error': 'No nanopore files found for this project.'}, status=400)
+        try:
+            sample_ids = extract_qiime2_metadata_sample_ids(metadata_file)
+        except ValueError as e:
+            return JsonResponse({'error': str(e)}, status=400)
+        file_sample_names = {
+            pns.nanopore_sequence.name
+            for pns in nanopore_sequences
+        }
+
+        metadata_sample_ids = set(sample_ids)
+
+        missing_files = [
+            f"{sample_id}: no FASTQ files found"
+            for sample_id in metadata_sample_ids
+            if sample_id not in file_sample_names
+        ]
+
+        extraneous_files = [
+            f"File {sample_id} not found in metadata"
+            for sample_id in file_sample_names
+            if sample_id not in metadata_sample_ids
+        ]
+
+        expected_count = len(metadata_sample_ids)
+        actual_count = len(file_sample_names)
+
+        if missing_files or extraneous_files or actual_count != expected_count:
+            return JsonResponse({
+                "error": "Metadata and metabarcoding file mismatch detected.",
+                "missing_files": missing_files or None,
+                "extraneous_files": extraneous_files or None,
+                "expected_file_count": expected_count,
+                "actual_file_count": actual_count,
+            }, status=400)
+        metadata_file.validated = True
+        metadata_file.save()
+        return JsonResponse({"success": "Metadata validation passed."})
+
     metabarcoding_files = ProjectMetabarcodingFile.objects.filter(project=project).select_related('metabarcoding_file')
     if not metabarcoding_files.exists():
         return JsonResponse({'error': 'No metabarcoding files found for this project.'}, status=400)
