@@ -557,7 +557,7 @@ def check_ancom_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
                 ancom_qzv_archived = download_and_save(
                     f"scratch/{user.username}/job-{job_uuid}" + ancom_qzv_file,
                     "ancom",
-                    f"{dada2_result.id}-ancom.qzv"
+                    f"{ancom_result.id}-ancom.qzv"
                 )
 
             ancom_result.save()
