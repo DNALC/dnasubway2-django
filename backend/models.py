@@ -566,6 +566,7 @@ class AncomResult(models.Model):
     heatmap = models.FileField(upload_to="ancom_files/", blank=True, null=True)
     abundance_barplot = models.FileField(upload_to="ancom_files/", blank=True, null=True)
     ancom = models.FileField(upload_to="ancom_files/", blank=True, null=True)
+    differentials = models.FileField(upload_to="ancom_files/", blank=True, null=True)
 
     def __str__(self):
         return f"Ancom results for Job {self.job.uuid}"

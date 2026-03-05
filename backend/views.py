@@ -1418,6 +1418,8 @@ def project_info(request):
                         results["Barplot"] = result.abundance_barplot.name
                     if result.ancom:
                         results["Ancom"] = result.ancom.name
+                    if result.differentials:
+                        results["Differentials"] = result.differentials.name
                 if results:
                     job_data["results"] = results
 

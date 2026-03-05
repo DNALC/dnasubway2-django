@@ -512,9 +512,11 @@ def check_ancom_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
         heatmap_qzv_file = None
         abundance_barplot_qzv_file = None
         ancom_qzv_file = None
+        differentials_qza_file = None
         heatmap_qzv_archived = False
         abundance_barplot_qzv_archived = False
         ancom_qzv_archived = False
+        differentials_qza_archived = None
 
         for file_path in all_files:
             if "heatmap" in file_path and file_path.endswith(".qzv"):
@@ -523,7 +525,9 @@ def check_ancom_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
                 abundance_barplot_qzv_file = file_path
             if "ancom" in file_path and file_path.endswith(".qzv"):
                 ancom_qzv_file = file_path
-        if any([heatmap_qzv_file, abundance_barplot_qzv_file, ancom_qzv_file]):
+            if "differentials" in file_path and file_path.endswith(".qza"):
+                differentials_qza_file = file_path
+        if any([heatmap_qzv_file, abundance_barplot_qzv_file, ancom_qzv_file, differentials_qza_file]):
             ancom_result, _ = AncomResult.objects.get_or_create(job=job_obj)
             def download_and_save(remote_path, field_name, filename):
                 content = download_tapis_file("js2_dnasubway2", user_token, remote_path)
@@ -560,6 +564,14 @@ def check_ancom_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
                     f"{ancom_result.id}-ancom.qzv"
                 )
 
+            if differentials_qza_file:
+                tprint(f"GET {ancom_qzv_file}")
+                differentials_qza_archived = download_and_save(
+                    f"scratch/{user.username}/job-{job_uuid}" + differentials_qza_file,
+                    "differentials",
+                    f"{ancom_result.id}-differentials.qza"
+                )
+
             ancom_result.save()
 
             # cleanup remote job dir
@@ -574,7 +586,8 @@ def check_ancom_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
         if not all([
             heatmap_qzv_archived,
             abundance_barplot_qzv_archived,
-            ancom_qzv_archived
+            ancom_qzv_archived,
+            differentials_qza_archived
         ]):
             job_obj.status = "FAILED"
             job_obj.save(update_fields=["status"])
