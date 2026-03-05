@@ -26,11 +26,11 @@ import tempfile
 import time
 import uuid
 #from django.shortcuts import render
-from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail, Dada2Result, RarefactionJobDetail, CoreMetricsJobDetail, CoreMetricsResult, GneissJobDetail
+from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail, Dada2Result, RarefactionJobDetail, CoreMetricsJobDetail, CoreMetricsResult, GneissJobDetail, AncomJobDetail
 from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file, extract_qiime2_metadata_sample_ids, get_max_rarefaction_depth, get_user_job_status, stop_job
 import gzip
 import shutil
-from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task, submit_rarefaction_job_task, submit_coremetrics_job_task, submit_gneiss_job_task  # Celery task
+from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task, submit_rarefaction_job_task, submit_coremetrics_job_task, submit_gneiss_job_task, submit_ancom_job_task  # Celery task
 from Bio import SeqIO
 import base64
 from .models import Author, MuscleTrim
@@ -1168,7 +1168,7 @@ def project_info(request):
     dada2 = {}
     rarefaction = {}
     coremetrics = {}
-    gneiss = {}
+    ancom = {}
     metadata = {}
     used_metadata_file_id = None
     max_rarefaction_depth = 100000
@@ -1212,17 +1212,17 @@ def project_info(request):
             )
             .order_by("-id")
         )
-        gneiss_jobs = (
+        ancom_jobs = (
             Job.objects.filter(
                 project=project,
-                appId=settings.QIIME2_GNEISS_APP_ID,
+                appId=settings.QIIME2_ANCOM_APP_ID,
             )
             .order_by("-id")
         )
         dada2 = {"running": False, "jobs": []}
         rarefaction = {"running": False, "jobs": []}
         coremetrics = {"running": False, "jobs": []}
-        gneiss = {"running": False, "jobs": []}
+        ancom = {"running": False, "jobs": []}
         if demux_job:
             running = demux_job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"]
 
@@ -1388,19 +1388,19 @@ def project_info(request):
                 else None
             )
 
-        if gneiss_jobs.exists():
-            # A Gneiss workflow is "running" if any job is not finished/cancelled/failed
-            gneiss["running"] = any(job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"] for job in gneiss_jobs)
+        if ancom_jobs.exists():
+            # An ancom workflow is "running" if any job is not finished/cancelled/failed
+            ancom["running"] = any(job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"] for job in ancom_jobs)
 
-            for job in gneiss_jobs:
+            for job in ancom_jobs:
                 job_data = {
                     "id": job.id,
                     "status": job.status,
                 }
 
-                # Gneiss parameters from GneissJobDetail
-                if hasattr(job, "gneiss_detail"):
-                    detail = job.gneiss_detail
+                # Ancom parameters from AncomJobDetail
+                if hasattr(job, "ancom_detail"):
+                    detail = job.ancom_detail
                     job_data.update({
                         "coremetrics_job_id": detail.coremetrics_job.id,
                         "category": detail.category,
@@ -1408,16 +1408,16 @@ def project_info(request):
                         "taxalevel": detail.taxalevel,
                     })
 
-                # Gneiss results
+                # Ancom results
                 results = {}
-                if hasattr(job, "gneiss_result"):
-                    result = job.gneiss_result
+                if hasattr(job, "ancom_result"):
+                    result = job.ancom_result
                     if result.heatmap:
                         results["Heatmap"] = result.heatmap.name
                 if results:
                     job_data["results"] = results
 
-                gneiss["jobs"].append(job_data)
+                ancom["jobs"].append(job_data)
 
     project_data = {
         'id': project.id,
@@ -1449,7 +1449,7 @@ def project_info(request):
         'dada2': dada2,
         'rarefaction': rarefaction,
         'coremetrics': coremetrics,
-        'gneiss': gneiss,
+        'ancom': ancom,
         'used_coremetrics_metadata': used_metadata_file_id,
     }
     return JsonResponse({'success': 'Project retrieved', 'project': project_data})
@@ -5591,6 +5591,124 @@ def gneiss(request):
 
     # Submit async task
     submit_gneiss_job_task.delay(
+        job.id,
+        dada2_result.trim_table_qza.name,
+        coremetrics_result.taxonomy_qza.name,
+        dada2_job_detail.metadata_file.file.name,
+        category,
+        formula,
+        taxalevel
+    )
+
+    return JsonResponse({'job_uuid': job.uuid, 'status': job.status})
+
+def ancom(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    project = parsed_data['project']
+    data = parsed_data['data']
+    user = request.user
+
+    category = data.get("category", "")
+    formula = data.get("formula", "")
+    try:
+        taxalevel = int(data.get("taxalevel", 0))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Level of taxonomy to summarize must be an integer."}, status=400)
+
+    if taxalevel < 0 or taxalevel > 7:
+        return JSONResponse({"error": "Level of taxonomy to summarize must be between 0 and 7"}, status=400)
+
+    if len(category) > 36:
+        return JSONResponse({"error": "Category should be limited to 36 characters"}, status=400)
+
+    if len(formula) > 512:
+        return JSONResponse({"error": "Too many columns selected for the grouping"}, status=400)
+
+    # Ensure there's a finished CoreMetricsResult for this project
+    finished_coremetrics_jobs = Job.objects.filter(
+        project=project,
+        appId=settings.QIIME2_COREMETRICS_APP_ID,
+        status='FINISHED'
+    ).order_by('-id')
+
+    if not finished_coremetrics_jobs.exists():
+        return JsonResponse({'error': 'No completed core metrics job found for this project.'}, status=400)
+
+    primary_jobs = finished_coremetrics_jobs.filter(primary=True)
+
+    if primary_jobs.exists():
+        coremetrics_job = primary_jobs.first()
+    else:
+        coremetrics_job = finished_coremetrics_jobs.first()
+
+    if not coremetrics_job:
+        return JsonResponse({'error': 'No complete core metrics job found for this project.'}, status=400)
+
+    coremetrics_detail = getattr(coremetrics_job, "coremetrics_detail", None)
+    if not coremetrics_detail:
+        return JsonResponse({'error': 'No coremetrics detail found for this job.'}, status=400)
+
+    dada2_job = getattr(coremetrics_detail, "dada2_job", None)
+    if not dada2_job:
+        return JsonResponse({'error': 'No dada2 job found for this core metrics job for this project.'}, status=400)
+
+    coremetrics_result = CoreMetricsResult.objects.filter(job=coremetrics_job).first()
+    dada2_result = Dada2Result.objects.filter(job=dada2_job).first()
+
+    if not dada2_result or not dada2_result.trim_table_qza or not coremetrics_result or not coremetrics_result.taxonomy_qza:
+        return JsonResponse({'error': 'Trim Table or Taxonomy QZA file not found.'}, status=400)
+    dada2_job_detail = Dada2JobDetail.objects.filter(job=dada2_job).first()
+    if not dada2_job_detail or not dada2_job_detail.metadata_file:
+        return JsonResponse({'error': 'Could not get dada2 metadata file.'}, status=400)
+
+    # Prevent duplicate active/queued Ancom jobs
+    active_ancom_exists = Job.objects.filter(
+        user=user,
+        appId=settings.QIIME2_ANCOM_APP_ID
+    ).exclude(status__in=['FINISHED', 'FAILED', 'STOPPED', 'CANCELLED', 'FAILED_BOOT']).exists()
+
+    if active_ancom_exists:
+        return JsonResponse({
+            'error': 'You already have an active or queued Ancom job. Please wait for it to finish.'
+        }, status=400)
+    existing_detail = (
+        AncomJobDetail.objects.filter(
+            job__status='FINISHED',
+            job__project=project,
+            job__appId=settings.QIIME2_ANCOM_APP_ID,
+            coremetrics_job=coremetrics_job,
+            category=category,
+            formula=formula,
+            taxalevel=taxalevel,
+        )
+        .select_related('job')
+        .order_by('-job__id')
+        .first()
+    )
+    if existing_detail:
+        return JsonResponse({
+            'error': f"A successful Ancom job with these parameters already exists for this project: an{existing_detail.job.id}",
+        }, status=400)
+
+    # Create Job placeholder
+    job = placeholder_tapis_job(user, settings.QIIME2_ANCOM_APP_ID)
+    job.project = project
+    job.save()
+
+    # Save job details
+    AncomJobDetail.objects.create(
+        job=job,
+        coremetrics_job=coremetrics_job,
+        category=category,
+        formula=formula,
+        taxalevel=taxalevel,
+    )
+
+    # Submit async task
+    submit_ancom_job_task.delay(
         job.id,
         dada2_result.trim_table_qza.name,
         coremetrics_result.taxonomy_qza.name,

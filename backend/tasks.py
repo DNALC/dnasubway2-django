@@ -1298,3 +1298,63 @@ def submit_gneiss_job_task(job_id, trim_table_qza_path, taxonomy_qza_path, metad
     except Exception as e:
         job.status = 'FAILED'
         job.save()
+
+@shared_task
+def submit_ancom_job_task(job_id, trim_table_qza_path, taxonomy_qza_path, metadata_path, category, formula, taxalevel):
+    job = Job.objects.get(id=job_id)
+    project = job.project
+    user = job.user
+
+    trim_table_filename = os.path.basename(trim_table_qza_path)
+    taxonomy_qza_filename = os.path.basename(taxonomy_qza_path)
+    trim_table_source_url = settings.REACT_URL + "backend/" + trim_table_qza_path
+    taxonomy_qza_source_url = settings.REACT_URL + "backend/" + taxonomy_qza_path
+    metadata_source_url = settings.REACT_URL + "backend/" + metadata_path
+
+    fileInputs = [{
+        "name": trim_table_filename,
+        "sourceUrl": trim_table_source_url,
+        "targetPath": "table-trimming.qza"
+    },
+    {
+        "name": taxonomy_qza_filename,
+        "sourceUrl": taxonomy_qza_source_url,
+        "targetPath": "taxonomy.qza"
+    },
+    {
+        "name": "metadata.tsv",
+        "sourceUrl": metadata_source_url,
+        "targetPath": "metadata.tsv"
+    }]
+
+    job_params = {
+        "name": "ancom",
+        "appId": settings.QIIME2_ANCOM_APP_TAPIS_ID,
+        "appVersion": settings.QIIME2_ANCOM_APP_VERSION,
+        "fileInputs": fileInputs,
+        "parameterSet": {
+            "envVariables": [
+                {"key": "DEBUG", "value": "1"},
+                {"key": "TABLE", "value": "table-trimming.qza"},
+                {"key": "TAXA", "value": "taxonomy.qza"},
+                {"key": "METADATA", "value": "metadata.tsv"},
+                {"key": "CATEGORY", "value": category},
+                {"key": "FORMULA", "value": formula},
+                {"key": "TAXALEVEL", "value": str(taxalevel)},
+            ]
+        }
+    }
+
+    try:
+        get_service_token()
+        user_token = generate_user_token(user.username)
+        t = connect_to_tapis(user.username, user_token)
+        tapis_job_response = t.jobs.submitJob(**job_params)
+
+        job.uuid = tapis_job_response.get('uuid')
+        job.status = tapis_job_response.get('status', 'PENDING')
+        job.save()
+
+    except Exception as e:
+        job.status = 'FAILED'
+        job.save()

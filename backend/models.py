@@ -550,6 +550,26 @@ class GneissResult(models.Model):
     def __str__(self):
         return f"Gneiss results for Job {self.job.uuid}"
 
+class AncomJobDetail(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="ancom_detail")
+    coremetrics_job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="ancom_jobs")
+    category = models.CharField(max_length=36)
+    formula = models.CharField(max_length=512)
+    taxalevel = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return f"Ancom details for Job {self.job.uuid}"
+
+class AncomResult(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="ancom_result")
+
+    heatmap = models.FileField(upload_to="ancom_files/", blank=True, null=True)
+    abundance_barplot = models.FileField(upload_to="ancom_files/", blank=True, null=True)
+    ancom = models.FileField(upload_to="ancom_files/", blank=True, null=True)
+
+    def __str__(self):
+        return f"Ancom results for Job {self.job.uuid}"
+
 class JobPodFile(models.Model):
     job = models.ForeignKey(Job, on_delete=models.CASCADE)
     podfile = models.ForeignKey(PodFile, on_delete=models.CASCADE)
