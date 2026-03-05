@@ -1414,6 +1414,10 @@ def project_info(request):
                     result = job.ancom_result
                     if result.heatmap:
                         results["Heatmap"] = result.heatmap.name
+                    if result.abundance_barplot:
+                        results["Barplot"] = result.abundance_barplot.name
+                    if result.ancom:
+                        results["Ancom"] = result.ancom.name
                 if results:
                     job_data["results"] = results
 
