@@ -17,7 +17,7 @@ import time
 import uuid
 import zipfile
 from tapipy.tapis import Tapis
-from .models import Job, DataFile, TrimJob, ConsensusJob, ConsensusData, BlastJob, BlastData, BlastResult, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, Project, ProjectDataFile, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, BlastCache
+from .models import Job, DataFile, TrimJob, ConsensusJob, ConsensusData, BlastJob, BlastData, BlastResult, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, Project, ProjectDataFile, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, BlastCache, ProjectMetabarcodingFile
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 tapis = Tapis(base_url='https://cyverse.tapis.io', username=settings.TAPIS_CYVERSE_USERNAME, password=settings.TAPIS_CYVERSE_PASSWORD)
