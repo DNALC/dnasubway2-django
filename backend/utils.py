@@ -2204,3 +2204,39 @@ def get_max_rarefaction_depth(trim_table):
         return MAX_DEPTH
 
     return value
+
+def validate_metabarcoding_pairs(metabarcoding_files, read_type):
+    PAIR_REGEX = re.compile(r"(.+)_R([12])_001\.fastq\.gz$")
+    metabarcoding_files = (
+        ProjectMetabarcodingFile.objects
+        .filter(project=project)
+        .select_related("metabarcoding_file")
+    )
+
+    pairs = {}
+
+    for pmf in metabarcoding_files:
+        filename = pmf.metabarcoding_file.name
+
+        match = PAIR_REGEX.match(filename)
+        if not match:
+            raise ValueError(f"Invalid filename format: {filename}")
+
+        prefix, read = match.groups()
+
+        if prefix not in pairs:
+            pairs[prefix] = set()
+
+        pairs[prefix].add(read)
+
+    if read_type == "paired":
+        missing = []
+
+        for prefix, reads in pairs.items():
+            if reads != {"1", "2"}:
+                missing.append(prefix)
+
+        if missing:
+            raise ValueError(
+                f"Missing paired reads for samples: {', '.join(missing)}"
+            )
