@@ -2207,12 +2207,6 @@ def get_max_rarefaction_depth(trim_table):
 
 def validate_metabarcoding_pairs(metabarcoding_files, read_type):
     PAIR_REGEX = re.compile(r"(.+)_R([12])_001\.fastq\.gz$")
-    metabarcoding_files = (
-        ProjectMetabarcodingFile.objects
-        .filter(project=project)
-        .select_related("metabarcoding_file")
-    )
-
     pairs = {}
 
     for pmf in metabarcoding_files:
