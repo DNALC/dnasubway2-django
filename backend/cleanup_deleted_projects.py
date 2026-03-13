@@ -92,9 +92,9 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
 
     # ---- STEP 2: MetabarcodingFile ----
     for mfile in MetabarcodingFile.objects.prefetch_related(
-        "projectmetabarcodingfile_set__project"
+        "project_links__project"
     ):
-        links = mfile.projectmetabarcodingfile_set.all()
+        links = mfile.project_links.all()
 
         deleted_links = [l for l in links if l.project.deleted]
         active_links = [l for l in links if not l.project.deleted]
@@ -111,9 +111,9 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
 
     # ---- STEP 4: MetadataFile ----
     for mfile in MetadataFile.objects.prefetch_related(
-        "projectmetadatafile_set__project"
+        "project_links__project"
     ):
-        links = mfile.projectmetadatafile_set.all()
+        links = mfile.project_links.all()
 
         deleted_links = [l for l in links if l.project.deleted]
         active_links = [l for l in links if not l.project.deleted]
