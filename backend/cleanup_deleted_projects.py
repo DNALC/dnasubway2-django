@@ -67,76 +67,105 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
 
     # ---- STEP 1: Mark guest projects as deleted (except created today) ----
     today = timezone.localdate()
-    guest_users = User.objects.filter(username__startswith="guest_")
-    guest_projects_qs = Project.objects.filter(user__in=guest_users)
-    guest_projects_to_mark = guest_projects_qs.exclude(created__date=today)
+
+    guest_projects = Project.objects.filter(
+        user__username__startswith="guest_"
+    )
+
+    guest_projects_to_mark = guest_projects.exclude(created__date=today)
 
     count = guest_projects_to_mark.update(deleted=True)
+
     if stdout:
         stdout.write(
             f"Marked {count} guest projects as deleted "
-            f"(excluding those created today: {guest_projects_qs.count() - count}).\n"
+            f"(excluding those created today: {guest_projects.count() - count}).\n"
         )
 
+    # --------------------------------------------------
+    # Cache NanoporeSampleSet directories once
+    # --------------------------------------------------
+
+    sample_dirs = list(
+        NanoporeSampleSet.objects.values_list("directory", flat=True)
+    )
+
     # ---- STEP 2: MetabarcodingFile ----
-    for mfile in MetabarcodingFile.objects.all():
-        p_links = ProjectMetabarcodingFile.objects.filter(metabarcoding_file=mfile)
-        if not p_links.exists():
-            continue
-        deleted_links = p_links.filter(project__deleted=True)
-        active_links = p_links.filter(project__deleted=False)
-        if deleted_links.exists() and not active_links.exists():
+    for mfile in MetabarcodingFile.objects.prefetch_related(
+        "projectmetabarcodingfile_set__project"
+    ):
+        links = mfile.projectmetabarcodingfile_set.all()
+
+        deleted_links = [l for l in links if l.project.deleted]
+        active_links = [l for l in links if not l.project.deleted]
+
+        if deleted_links and not active_links:
             maybe_delete(mfile.file, dry_run)
 
     # ---- STEP 3: DemuxResult ----
-    for d in DemuxResult.objects.filter(job__project__deleted=True):
+    for d in DemuxResult.objects.select_related("job__project").filter(
+        job__project__deleted=True
+    ):
         for field_name in ["demux_qza", "demux_summary_qzv", "log_file"]:
             maybe_delete(getattr(d, field_name), dry_run)
 
     # ---- STEP 4: MetadataFile ----
-    for mfile in MetadataFile.objects.all():
-        p_links = ProjectMetadataFile.objects.filter(metadata_file=mfile)
-        deleted_links = p_links.filter(project__deleted=True)
-        active_links = p_links.filter(project__deleted=False)
-        if deleted_links.exists() and not active_links.exists():
+    for mfile in MetadataFile.objects.prefetch_related(
+        "projectmetadatafile_set__project"
+    ):
+        links = mfile.projectmetadatafile_set.all()
+
+        deleted_links = [l for l in links if l.project.deleted]
+        active_links = [l for l in links if not l.project.deleted]
+        if deleted_links and not active_links:
             maybe_delete(mfile.file, dry_run)
 
     # ---- STEP 5: NanoporeSequence ----
     for seq in NanoporeSequence.objects.all():
-        proj_links = ProjectNanoporeSequence.objects.filter(nanopore_sequence=seq)
-        deleted_links = proj_links.filter(project__deleted=True)
-        active_links = proj_links.filter(project__deleted=False)
-        user_links = UserNanoporeSequence.objects.filter(nanopore_sequence=seq)
+        proj_links = list(
+            ProjectNanoporeSequence.objects.select_related("project")
+            .filter(nanopore_sequence=seq)
+        )
 
-        # guest user owns this sequence?
-        guest_user_link = user_links.filter(user__username__startswith="guest_").exists()
-        guest_owned = guest_user_link
+        deleted_links = [l for l in proj_links if l.project.deleted]
+        active_links = [l for l in proj_links if not l.project.deleted]
 
-        sample_set_exists = NanoporeSampleSet.objects.filter(
-            directory__in=[
-                sample_set.directory
-                for sample_set in NanoporeSampleSet.objects.all()
-                if seq.file.name.startswith(sample_set.directory)
-            ]
-        ).exists()
+        user_links = list(
+            UserNanoporeSequence.objects.select_related("user")
+            .filter(nanopore_sequence=seq)
+        )
 
-        if deleted_links.exists() and not active_links.exists() and not sample_set_exists:
+        guest_owned = any(
+            ul.user.username.startswith("guest_")
+            for ul in user_links
+        )
+
+        sample_set_exists = any(
+            seq.file.name.startswith(directory)
+            for directory in sample_dirs
+        )
+
+        if deleted_links and not active_links and not sample_set_exists:
             # For guest-owned, skip the user exclusion
             if guest_owned or not user_links.exists():
                 maybe_delete(seq.file, dry_run)
 
     # ---- STEP 6: DataFile ----
-    for df in DataFile.objects.all():
-        proj_links = ProjectDataFile.objects.filter(data_file=df)
-        deleted_links = proj_links.filter(project__deleted=True)
-        active_links = proj_links.filter(project__deleted=False)
+    for df in DataFile.objects.prefetch_related(
+        "projectdatafile_set__project"
+    ).select_related("user"):
+
+        links = df.projectdatafile_set.all()
+
+        deleted_links = [l for l in links if l.project.deleted]
+        active_links = [l for l in links if not l.project.deleted]
+
         guest_owned = (
-            hasattr(df, "user")
-            and df.user
+            df.user
             and df.user.username.startswith("guest_")
         )
 
-        if deleted_links.exists() and not active_links.exists():
+        if deleted_links and not active_links:
             # Normally skip in_sequence_repository=True, but not for guest-owned
             if guest_owned or not df.in_sequence_repository:
                 if df.source not in ('sample', 'reference'):
@@ -144,27 +173,37 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
                         maybe_delete(getattr(df, field_name), dry_run)
 
     # ---- STEP 7: MuscleJob ----
-    for mj in MuscleJob.objects.filter(job__project__deleted=True):
+    for mj in MuscleJob.objects.select_related("job__project").filter(
+        job__project__deleted=True
+    ):
         if hasattr(mj, "associated_input"):
             maybe_delete(mj.associated_input, dry_run)
 
     # ---- STEP 8: MuscleData ----
-    for md in MuscleData.objects.filter(muscle_job__job__project__deleted=True):
+    for md in MuscleData.objects.select_related(
+        "muscle_job__job__project"
+    ).filter(muscle_job__job__project__deleted=True):
         for field_name in ["associated_alignment", "original_associated_alignment"]:
             maybe_delete(getattr(md, field_name), dry_run)
 
     # ---- STEP 9: FastpResult ----
-    for fr in FastpResult.objects.filter(project_nanopore_sequence__project__deleted=True):
+    for fr in FastpResult.objects.select_related(
+        "project_nanopore_sequence__project"
+    ).filter(project_nanopore_sequence__project__deleted=True):
         for field_name in ["filtered_file", "json_file", "html_file"]:
             maybe_delete(getattr(fr, field_name), dry_run)
 
     # ---- STEP 10: PorechopResult ----
-    for pr in PorechopResult.objects.filter(project_nanopore_sequence__project__deleted=True):
+    for pr in PorechopResult.objects.select_related(
+        "project_nanopore_sequence__project"
+    ).filter(project_nanopore_sequence__project__deleted=True):
         for field_name in ["chopped_file", "html_log_file"]:
             maybe_delete(getattr(pr, field_name), dry_run)
 
     # ---- STEP 11: MedakaResult ----
-    for mr in MedakaResult.objects.filter(project_nanopore_sequence__project__deleted=True):
+    for mr in MedakaResult.objects.select_related(
+        "project_nanopore_sequence__project"
+    ).filter(project_nanopore_sequence__project__project__deleted=True):
         for field_name in ["fasta_file", "fasta_file_medaka_headers", "medaka_output_dir"]:
             maybe_delete(getattr(mr, field_name), dry_run)
 
