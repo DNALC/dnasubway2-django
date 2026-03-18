@@ -6216,7 +6216,6 @@ def validate_metadata(request):
     FILENAME_REGEX = re.compile(
         rf'^[A-Za-z0-9\.-]+_[^_]+_L[0-9]{{3}}_R{"[12]" if project.read_type == "paired" else "1"}_001\.fastq\.gz$'
     )
-
     invalid_filenames = []
     file_sample_map = {}
 
