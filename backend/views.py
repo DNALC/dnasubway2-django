@@ -1169,6 +1169,9 @@ def project_info(request):
     rarefaction = {}
     coremetrics = {}
     ancom = {}
+    proname_import = {}
+    proname_filter = {}
+    proname_refine = {}
     metadata = {}
     used_metadata_file_id = None
     max_rarefaction_depth = 100000
@@ -1219,10 +1222,34 @@ def project_info(request):
             )
             .order_by("-id")
         )
+        proname_import_jobs = (
+            Job.objects.filter(
+                project=project,
+                appId=settings.QIIME2_PRONAME_IMPORT_APP_ID,
+            )
+            .order_by("-id")
+        )
+        proname_filter_jobs = (
+            Job.objects.filter(
+                project=project,
+                appId=settings.QIIME2_PRONAME_FILTER_APP_ID,
+            )
+            .order_by("-id")
+        )
+        proname_refine_jobs = (
+            Job.objects.filter(
+                project=project,
+                appId=settings.QIIME2_PRONAME_REFINE_APP_ID,
+            )
+            .order_by("-id")
+        )
         dada2 = {"running": False, "jobs": []}
         rarefaction = {"running": False, "jobs": []}
         coremetrics = {"running": False, "jobs": []}
         ancom = {"running": False, "jobs": []}
+        proname_import = {"running": False, "jobs": []}
+        proname_filter = {"running": False, "jobs": []}
+        proname_refine = {"running": False, "jobs": []}
         if demux_job:
             running = demux_job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"]
 
@@ -1425,6 +1452,125 @@ def project_info(request):
 
                 ancom["jobs"].append(job_data)
 
+        if proname_import_jobs.exists():
+            # A proname import workflow is "running" if any job is not finished/cancelled/failed
+            proname_import["running"] = any(job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"] for job in proname_import_jobs)
+
+            for job in proname_import_jobs:
+                job_data = {
+                    "id": job.id,
+                    "status": job.status,
+                }
+
+                # Proname Import parameters from PronameImportJobDetail
+                if hasattr(job, "proname_import_detail"):
+                    detail = job.proname_import_detail
+                    job_data.update({
+                        "forward_primer": detail.forward_primer,
+                        "reverse_primer": detail.reverse_primer,
+                        "kit": detail.kit,
+                        "has_duplex": detail.has_duplex,
+                        "trim_adapters": detail.trim_adapters,
+                        "trim_primers": detail.trim_primers,
+                    })
+
+                # Proname Import results
+                results = {}
+                if hasattr(job, "proname_import_result"):
+                    result = job.proname_import_result
+                    if result.duplex_plot:
+                        results["Duplex Plot"] = result.duplex_plot.name
+                    if result.simplex_plot:
+                        results["Simplex Plot"] = result.simplex_plot.name
+                    if result.dual_plot:
+                        results["Simplex/Duplex Plot"] = result.dual_plot.name
+                    if result.simplex_distribution:
+                        results["Simplex Distribution"] = result.simplex_distribution.name
+                    if result.duplex_distribution:
+                        results["Duplex Distribution"] = result.duplex_distribution.name
+                    if result.dual_distribution:
+                        results["Simplex/Duplex Distribution"] = result.dual_distribution.name
+                if results:
+                    job_data["results"] = results
+
+                proname_import["jobs"].append(job_data)
+        if proname_filter_jobs.exists():
+            # A proname filter workflow is "running" if any job is not finished/cancelled/failed
+            proname_filter["running"] = any(job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"] for job in proname_filter_jobs)
+
+            for job in proname_filter_jobs:
+                job_data = {
+                    "id": job.id,
+                    "status": job.status,
+                }
+
+                # Proname Filter parameters from PronameFilterJobDetail
+                if hasattr(job, "proname_filter_detail"):
+                    detail = job.proname_filter_detail
+                    job_data.update({
+                        "data_type": detail.data_type,
+                        "filt_min_length": detail.filt_min_length,
+                        "filt_max_length": detail.filt_max_length,
+                        "filt_min_qual": detail.filt_min_qual,
+                    })
+
+                # Proname Filter results
+                results = {}
+                if hasattr(job, "proname_filter_result"):
+                    result = job.proname_filter_result
+                    if result.duplex_plot:
+                        results["Duplex Plot"] = result.duplex_plot.name
+                    if result.simplex_plot:
+                        results["Simplex Plot"] = result.simplex_plot.name
+                    if result.dual_plot:
+                        results["Simplex/Duplex Plot"] = result.dual_plot.name
+                    if result.simplex_distribution:
+                        results["Simplex Distribution"] = result.simplex_distribution.name
+                    if result.duplex_distribution:
+                        results["Duplex Distribution"] = result.duplex_distribution.name
+                    if result.dual_distribution:
+                        results["Simplex/Duplex Distribution"] = result.dual_distribution.name
+                if results:
+                    job_data["results"] = results
+
+                proname_filter["jobs"].append(job_data)
+
+        if proname_refine_jobs.exists():
+            # A proname refine workflow is "running" if any job is not finished/cancelled/failed
+            proname_refine["running"] = any(job.status not in ["FINISHED", "CANCELLED", "FAILED", "STOPPED"] for job in proname_refine_jobs)
+
+            for job in proname_refine_jobs:
+                job_data = {
+                    "id": job.id,
+                    "status": job.status,
+                }
+
+                # Proname Refine parameters from PronameRefineJobDetail
+                if hasattr(job, "proname_refine_detail"):
+                    detail = job.proname_refine_detail
+                    job_data.update({
+                        "chimera_db": detail.chimera_db,
+                        "cluster_id": detail.cluster_id,
+                        "clustering_method": detail.clustering_method,
+                        "medaka_model": detail.medaka_model,
+                        "metadata_file": detail.metadata_file,
+                    })
+
+                # Proname Refine results
+                results = {}
+                if hasattr(job, "proname_refine_result"):
+                    result = job.proname_refine_result
+                    if result.rep_seqs_qza:
+                        results["Representative Sequences (Archive)"] = result.rep_seqs_qza.name
+                    if result.trim_table_qza:
+                        results["Trim Table (Archive)"] = result.trim_table_qza.name
+                    if result.rooted_tree_qza:
+                        results["Rooted Tree (Archive)"] = result.rooted_tree_qza.name
+                if results:
+                    job_data["results"] = results
+
+                proname_refine["jobs"].append(job_data)
+
     project_data = {
         'id': project.id,
         'muscle_job': has_muscle_job,
@@ -1456,6 +1602,9 @@ def project_info(request):
         'rarefaction': rarefaction,
         'coremetrics': coremetrics,
         'ancom': ancom,
+        'proname_import': proname_import,
+        'proname_filter': proname_filter,
+        'proname_refine': proname_refine,
         'used_coremetrics_metadata': used_metadata_file_id,
     }
     return JsonResponse({'success': 'Project retrieved', 'project': project_data})
