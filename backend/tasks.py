@@ -1366,24 +1366,24 @@ def submit_proname_import_job_task(job_id, forwardPrimer, reversePrimer, kit, ha
     user = job.user
 
     # Prepare fileInputs
-    metabarcoding_files = (
-        ProjectMetabarcodingFile.objects
+    nanopore_sequences = (
+        ProjectNanoporeSequence.objects
         .filter(project=project)
-        .exclude(metabarcoding_file__source='proname_import')
-        .select_related('metabarcoding_file')
+        .exclude(nanopore_sequence__source='proname_import')
+        .select_related('nanopore_sequence')
     )
     fileInputs = []
     seen_names = set()
-    for f in metabarcoding_files:
-        mf = f.metabarcoding_file
-        filename = mf.name
+    for f in nanopore_sequences:
+        ns = f.nanopore_sequence
+        filename = ns.name
         if filename in seen_names:
             continue
         seen_names.add(filename)
 
         fileInputs.append({
             "name": filename,
-            "sourceUrl": settings.REACT_URL + "backend/" + mf.file.name,
+            "sourceUrl": settings.REACT_URL + "backend/" + ns.file.name,
             "targetPath": filename
         })
 

@@ -214,11 +214,6 @@ class Project(models.Model):
         return self.title
 
 class MetabarcodingFile(models.Model):
-    SOURCE_CHOICES = [
-        ('upload', 'Upload'),
-        ('proname_import', 'Proname Import'),
-    ]
-    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='upload')
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     name = models.CharField(max_length=255)
     file = models.FileField(upload_to='metabarcoding_files/')
@@ -318,7 +313,98 @@ class PodFile(models.Model):
     def __str__(self):
         return self.name
 
+class PronameImportJobDetail(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_import_detail")
+    forward_primer = models.CharField(max_length=64, default='')
+    reverse_primer = models.CharField(max_length=64, default='')
+    kit = models.CharField(max_length=64, default='')
+    has_duplex = models.BooleanField(default=False)
+    trim_adapters = models.BooleanField(default=False)
+    trim_primers = models.BooleanField(default=False)
+
+class PronameImportResult(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_import_result")
+    duplex_plot = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
+    simplex_plot = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
+    dual_plot = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
+    simplex_distribution = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
+    duplex_distribution = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
+    dual_distribution = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
+    simplex_reads = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
+    duplex_reads = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
+    dual_reads = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
+
+class PronameFilterJobDetail(models.Model):
+    DATA_TYPES = [
+        ('simplex', 'simplex'),
+        ('duplex', 'duplex'),
+        ('both', 'both')
+    ]
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_filter_detail")
+    data_type = models.CharField(max_length=8, choices=DATA_TYPES, default='simplex')
+    filt_min_length = models.PositiveIntegerField(default=1)
+    filt_max_length = models.PositiveIntegerField(default=5000)
+    filt_min_qual = models.PositiveIntegerField(default=15)
+
+class PronameFilterResult(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_filter_result")
+    duplex_plot = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
+    simplex_plot = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
+    dual_plot = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
+    simplex_distribution = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
+    duplex_distribution = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
+    dual_distribution = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
+    simplex_reads = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
+    duplex_reads = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
+    dual_reads = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
+
+class PronameRefineJobDetail(models.Model):
+    CHIMERA_DBS = [
+        ('refseq207', 'refseq207'),
+        ('greengenes2', 'greengenes2'),
+        ('silva138', 'silva138'),
+        ('regenb_full', 'regenb_full'),
+        ('regenb_unique', 'regenb_unique')
+    ]
+    CLUSTERING_METHODS = [
+        ('vsearch', 'vsearch'),
+        ('mmseqs2', 'mmseqs2')
+    ]
+    MEDAKA_MODEL_LIST = ['r103_fast_g507', 'r103_fast_snp_g507', 'r103_fast_variant_g507', 'r103_hac_g507', 'r103_hac_snp_g507', 'r103_hac_variant_g507', 'r103_sup_g507', 'r103_sup_snp_g507', 'r103_sup_variant_g507', 'r1041_e82_260bps_fast_g632', 'r1041_e82_260bps_fast_variant_g632', 'r1041_e82_260bps_hac_g632', 'r1041_e82_260bps_hac_v4.0.0', 'r1041_e82_260bps_hac_v4.1.0', 'r1041_e82_260bps_hac_variant_g632', 'r1041_e82_260bps_hac_variant_v4.1.0', 'r1041_e82_260bps_joint_apk_ulk_v5.0.0', 'r1041_e82_260bps_sup_g632', 'r1041_e82_260bps_sup_v4.0.0', 'r1041_e82_260bps_sup_v4.1.0', 'r1041_e82_260bps_sup_variant_g632', 'r1041_e82_260bps_sup_variant_v4.1.0', 'r1041_e82_400bps_bacterial_methylation', 'r1041_e82_400bps_fast_g615', 'r1041_e82_400bps_fast_g632', 'r1041_e82_400bps_fast_variant_g615', 'r1041_e82_400bps_fast_variant_g632', 'r1041_e82_400bps_hac_g615', 'r1041_e82_400bps_hac_g632', 'r1041_e82_400bps_hac_v4.0.0', 'r1041_e82_400bps_hac_v4.1.0', 'r1041_e82_400bps_hac_v4.2.0', 'r1041_e82_400bps_hac_v4.3.0', 'r1041_e82_400bps_hac_v5.0.0', 'r1041_e82_400bps_hac_v5.0.0_rl_lstm384_dwells', 'r1041_e82_400bps_hac_v5.0.0_rl_lstm384_no_dwells', 'r1041_e82_400bps_hac_v5.2.0', 'r1041_e82_400bps_hac_v5.2.0_rl_lstm384_dwells', 'r1041_e82_400bps_hac_v5.2.0_rl_lstm384_no_dwells', 'r1041_e82_400bps_hac_variant_g615', 'r1041_e82_400bps_hac_variant_g632', 'r1041_e82_400bps_hac_variant_v4.1.0', 'r1041_e82_400bps_hac_variant_v4.2.0', 'r1041_e82_400bps_hac_variant_v4.3.0', 'r1041_e82_400bps_hac_variant_v5.0.0', 'r1041_e82_400bps_sup_g615', 'r1041_e82_400bps_sup_v4.0.0', 'r1041_e82_400bps_sup_v4.1.0', 'r1041_e82_400bps_sup_v4.2.0', 'r1041_e82_400bps_sup_v4.3.0', 'r1041_e82_400bps_sup_v5.0.0', 'r1041_e82_400bps_sup_v5.0.0_rl_lstm384_dwells', 'r1041_e82_400bps_sup_v5.0.0_rl_lstm384_no_dwells', 'r1041_e82_400bps_sup_v5.2.0', 'r1041_e82_400bps_sup_v5.2.0_rl_lstm384_dwells', 'r1041_e82_400bps_sup_v5.2.0_rl_lstm384_no_dwells', 'r1041_e82_400bps_sup_variant_g615', 'r1041_e82_400bps_sup_variant_v4.1.0', 'r1041_e82_400bps_sup_variant_v4.2.0', 'r1041_e82_400bps_sup_variant_v4.3.0', 'r1041_e82_400bps_sup_variant_v5.0.0', 'r104_e81_fast_g5015', 'r104_e81_fast_variant_g5015', 'r104_e81_hac_g5015', 'r104_e81_hac_variant_g5015', 'r104_e81_sup_g5015', 'r104_e81_sup_g610', 'r104_e81_sup_variant_g610', 'r941_e81_fast_g514', 'r941_e81_fast_variant_g514', 'r941_e81_hac_g514', 'r941_e81_hac_variant_g514', 'r941_e81_sup_g514', 'r941_e81_sup_variant_g514', 'r941_min_fast_g507', 'r941_min_fast_snp_g507', 'r941_min_fast_variant_g507', 'r941_min_hac_g507', 'r941_min_hac_snp_g507', 'r941_min_hac_variant_g507', 'r941_min_sup_g507', 'r941_min_sup_snp_g507', 'r941_min_sup_variant_g507', 'r941_prom_fast_g507', 'r941_prom_fast_snp_g507', 'r941_prom_fast_variant_g507', 'r941_prom_hac_g507', 'r941_prom_hac_snp_g507', 'r941_prom_hac_variant_g507', 'r941_prom_sup_g507', 'r941_prom_sup_snp_g507', 'r941_prom_sup_variant_g507', 'r941_sup_plant_g610', 'r941_sup_plant_variant_g610']
+    MEDAKA_MODELS = [(m, m) for m in MEDAKA_MODEL_LIST]
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_refine_detail")
+    chimera_db = models.CharField(max_length=32, choices=CHIMERA_DBS, default='greengenes2')
+    cluster_id = models.DecimalField(max_digits=3, decimal_places=2, validators=[MinValueValidator(0.0), MaxValueValidator(1.0)])
+    clustering_method = models.CharField(max_length=16, choices=CLUSTERING_METHODS, default='vsearch')
+    medaka_model = models.CharField(max_length=64, choices=MEDAKA_MODELS, default='r1041_e82_400bps_sup_v5.2.0')
+    metadata_file = models.ForeignKey(MetadataFile, on_delete=models.CASCADE, related_name="proname_refine_details")
+
+class PronameRefineResult(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_refine_result")
+    rep_seqs_qza = models.FileField(upload_to="proname_refine_files/", blank=True, null=True)
+    trim_table_qza = models.FileField(upload_to="proname_refine_files/", blank=True, null=True)
+    rep_seqs_fasta = models.FileField(upload_to="proname_refine_files/", blank=True, null=True)
+    rep_table_tsv = models.FileField(upload_to="proname_refine_files/", blank=True, null=True)
+    rooted_tree_qza = models.FileField(upload_to="proname_refine_files/", blank=True, null=True)
+
+class PronameTaxonomyJobDetail(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_taxonomy_detail")
+    metadata_file = models.ForeignKey(MetadataFile, on_delete=models.SET_NULL, null=True, related_name="proname_taxonomy_details")
+    assay = models.CharField(max_length=64, default='')
+
+class PronameTaxonomyResult(models.Model):
+    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_taxonomy_result")
+    rooted_tree_qza = models.FileField(upload_to="proname_taxonomy_files/", blank=True, null=True)
+    taxonomy_qza = models.FileField(upload_to="proname_taxonomy_files/", blank=True, null=True)
+    taxa_bar_plots = models.FileField(upload_to="proname_taxonomy_files/", blank=True, null=True)
+
 class NanoporeSequence(models.Model):
+    SOURCE_CHOICES = [
+        ('upload', 'Upload'),
+        ('proname_import', 'Proname Import'),
+    ]
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='upload')
+    proname_import_result = models.ForeignKey(PronameImportResult, on_delete=models.SET_NULL, null=True, blank=True)
     name = models.CharField(max_length=255)
     file = models.FileField(upload_to='fastq_files/')
 
@@ -835,88 +921,3 @@ class BlastCache(models.Model):
     job = models.ForeignKey('Job', on_delete=models.CASCADE)
     blast_job = models.ForeignKey('BlastJob', on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-
-class PronameImportJobDetail(models.Model):
-    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_import_detail")
-    forward_primer = models.CharField(max_length=64, default='')
-    reverse_primer = models.CharField(max_length=64, default='')
-    kit = models.CharField(max_length=64, default='')
-    has_duplex = models.BooleanField(default=False)
-    trim_adapters = models.BooleanField(default=False)
-    trim_primers = models.BooleanField(default=False)
-
-class PronameImportResult(models.Model):
-    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_import_result")
-    duplex_plot = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
-    simplex_plot = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
-    dual_plot = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
-    simplex_distribution = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
-    duplex_distribution = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
-    dual_distribution = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
-    simplex_reads = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
-    duplex_reads = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
-    dual_reads = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
-
-class PronameFilterJobDetail(models.Model):
-    DATA_TYPES = [
-        ('simplex', 'simplex'),
-        ('duplex', 'duplex'),
-        ('both', 'both')
-    ]
-    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_filter_detail")
-    data_type = models.CharField(max_length=8, choices=DATA_TYPES, default='simplex')
-    filt_min_length = models.PositiveIntegerField(default=1)
-    filt_max_length = models.PositiveIntegerField(default=5000)
-    filt_min_qual = models.PositiveIntegerField(default=15)
-
-class PronameFilterResult(models.Model):
-    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_filter_result")
-    duplex_plot = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
-    simplex_plot = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
-    dual_plot = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
-    simplex_distribution = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
-    duplex_distribution = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
-    dual_distribution = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
-    simplex_reads = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
-    duplex_reads = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
-    dual_reads = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
-
-class PronameRefineJobDetail(models.Model):
-    CHIMERA_DBS = [
-        ('refseq207', 'refseq207'),
-        ('greengenes2', 'greengenes2'),
-        ('silva138', 'silva138'),
-        ('regenb_full', 'regenb_full'),
-        ('regenb_unique', 'regenb_unique')
-    ]
-    CLUSTERING_METHODS = [
-        ('vsearch', 'vsearch'),
-        ('mmseqs2', 'mmseqs2')
-    ]
-    MEDAKA_MODEL_LIST = ['r103_fast_g507', 'r103_fast_snp_g507', 'r103_fast_variant_g507', 'r103_hac_g507', 'r103_hac_snp_g507', 'r103_hac_variant_g507', 'r103_sup_g507', 'r103_sup_snp_g507', 'r103_sup_variant_g507', 'r1041_e82_260bps_fast_g632', 'r1041_e82_260bps_fast_variant_g632', 'r1041_e82_260bps_hac_g632', 'r1041_e82_260bps_hac_v4.0.0', 'r1041_e82_260bps_hac_v4.1.0', 'r1041_e82_260bps_hac_variant_g632', 'r1041_e82_260bps_hac_variant_v4.1.0', 'r1041_e82_260bps_joint_apk_ulk_v5.0.0', 'r1041_e82_260bps_sup_g632', 'r1041_e82_260bps_sup_v4.0.0', 'r1041_e82_260bps_sup_v4.1.0', 'r1041_e82_260bps_sup_variant_g632', 'r1041_e82_260bps_sup_variant_v4.1.0', 'r1041_e82_400bps_bacterial_methylation', 'r1041_e82_400bps_fast_g615', 'r1041_e82_400bps_fast_g632', 'r1041_e82_400bps_fast_variant_g615', 'r1041_e82_400bps_fast_variant_g632', 'r1041_e82_400bps_hac_g615', 'r1041_e82_400bps_hac_g632', 'r1041_e82_400bps_hac_v4.0.0', 'r1041_e82_400bps_hac_v4.1.0', 'r1041_e82_400bps_hac_v4.2.0', 'r1041_e82_400bps_hac_v4.3.0', 'r1041_e82_400bps_hac_v5.0.0', 'r1041_e82_400bps_hac_v5.0.0_rl_lstm384_dwells', 'r1041_e82_400bps_hac_v5.0.0_rl_lstm384_no_dwells', 'r1041_e82_400bps_hac_v5.2.0', 'r1041_e82_400bps_hac_v5.2.0_rl_lstm384_dwells', 'r1041_e82_400bps_hac_v5.2.0_rl_lstm384_no_dwells', 'r1041_e82_400bps_hac_variant_g615', 'r1041_e82_400bps_hac_variant_g632', 'r1041_e82_400bps_hac_variant_v4.1.0', 'r1041_e82_400bps_hac_variant_v4.2.0', 'r1041_e82_400bps_hac_variant_v4.3.0', 'r1041_e82_400bps_hac_variant_v5.0.0', 'r1041_e82_400bps_sup_g615', 'r1041_e82_400bps_sup_v4.0.0', 'r1041_e82_400bps_sup_v4.1.0', 'r1041_e82_400bps_sup_v4.2.0', 'r1041_e82_400bps_sup_v4.3.0', 'r1041_e82_400bps_sup_v5.0.0', 'r1041_e82_400bps_sup_v5.0.0_rl_lstm384_dwells', 'r1041_e82_400bps_sup_v5.0.0_rl_lstm384_no_dwells', 'r1041_e82_400bps_sup_v5.2.0', 'r1041_e82_400bps_sup_v5.2.0_rl_lstm384_dwells', 'r1041_e82_400bps_sup_v5.2.0_rl_lstm384_no_dwells', 'r1041_e82_400bps_sup_variant_g615', 'r1041_e82_400bps_sup_variant_v4.1.0', 'r1041_e82_400bps_sup_variant_v4.2.0', 'r1041_e82_400bps_sup_variant_v4.3.0', 'r1041_e82_400bps_sup_variant_v5.0.0', 'r104_e81_fast_g5015', 'r104_e81_fast_variant_g5015', 'r104_e81_hac_g5015', 'r104_e81_hac_variant_g5015', 'r104_e81_sup_g5015', 'r104_e81_sup_g610', 'r104_e81_sup_variant_g610', 'r941_e81_fast_g514', 'r941_e81_fast_variant_g514', 'r941_e81_hac_g514', 'r941_e81_hac_variant_g514', 'r941_e81_sup_g514', 'r941_e81_sup_variant_g514', 'r941_min_fast_g507', 'r941_min_fast_snp_g507', 'r941_min_fast_variant_g507', 'r941_min_hac_g507', 'r941_min_hac_snp_g507', 'r941_min_hac_variant_g507', 'r941_min_sup_g507', 'r941_min_sup_snp_g507', 'r941_min_sup_variant_g507', 'r941_prom_fast_g507', 'r941_prom_fast_snp_g507', 'r941_prom_fast_variant_g507', 'r941_prom_hac_g507', 'r941_prom_hac_snp_g507', 'r941_prom_hac_variant_g507', 'r941_prom_sup_g507', 'r941_prom_sup_snp_g507', 'r941_prom_sup_variant_g507', 'r941_sup_plant_g610', 'r941_sup_plant_variant_g610']
-    MEDAKA_MODELS = [(m, m) for m in MEDAKA_MODEL_LIST]
-    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_refine_detail")
-    chimera_db = models.CharField(max_length=32, choices=CHIMERA_DBS, default='greengenes2')
-    cluster_id = models.DecimalField(max_digits=3, decimal_places=2, validators=[MinValueValidator(0.0), MaxValueValidator(1.0)])
-    clustering_method = models.CharField(max_length=16, choices=CLUSTERING_METHODS, default='vsearch')
-    medaka_model = models.CharField(max_length=64, choices=MEDAKA_MODELS, default='r1041_e82_400bps_sup_v5.2.0')
-    metadata_file = models.ForeignKey(MetadataFile, on_delete=models.CASCADE, related_name="proname_refine_details")
-
-class PronameRefineResult(models.Model):
-    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_refine_result")
-    rep_seqs_qza = models.FileField(upload_to="proname_refine_files/", blank=True, null=True)
-    trim_table_qza = models.FileField(upload_to="proname_refine_files/", blank=True, null=True)
-    rep_seqs_fasta = models.FileField(upload_to="proname_refine_files/", blank=True, null=True)
-    rep_table_tsv = models.FileField(upload_to="proname_refine_files/", blank=True, null=True)
-    rooted_tree_qza = models.FileField(upload_to="proname_refine_files/", blank=True, null=True)
-
-class PronameTaxonomyJobDetail(models.Model):
-    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_taxonomy_detail")
-    metadata_file = models.ForeignKey(MetadataFile, on_delete=models.SET_NULL, null=True, related_name="proname_taxonomy_details")
-    assay = models.CharField(max_length=64, default='')
-
-class PronameTaxonomyResult(models.Model):
-    job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_taxonomy_result")
-    rooted_tree_qza = models.FileField(upload_to="proname_taxonomy_files/", blank=True, null=True)
-    taxonomy_qza = models.FileField(upload_to="proname_taxonomy_files/", blank=True, null=True)
-    taxa_bar_plots = models.FileField(upload_to="proname_taxonomy_files/", blank=True, null=True)

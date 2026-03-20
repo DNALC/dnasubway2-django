@@ -6503,8 +6503,13 @@ def proname_import(request):
             'error': 'You already have an active or queued proname import job. Please wait for it to finish before starting another.'
         }, status=400)
 
-    metabarcoding_files = ProjectMetabarcodingFile.objects.filter(project=project).select_related('metabarcoding_file')
-    if not metabarcoding_files.exists():
+    nanopore_sequences = (
+        ProjectNanoporeSequence.objects
+        .filter(project=project)
+        .exclude(nanopore_sequence__source='proname_import')
+        .select_related('nanopore_sequence')
+    )
+    if not nanopore_sequences.exists():
         return JsonResponse({'error': 'No metabarcoding files found for this project.'}, status=400)
     job = placeholder_tapis_job(user, settings.QIIME2_PRONAME_IMPORT_APP_ID)
     job.project = project
