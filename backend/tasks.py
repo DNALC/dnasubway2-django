@@ -1376,15 +1376,15 @@ def submit_proname_import_job_task(job_id, forwardPrimer, reversePrimer, kit, ha
     seen_names = set()
     for f in nanopore_sequences:
         ns = f.nanopore_sequence
-        filename = ns.name
-        if filename in seen_names:
+        name = ns.name
+        if name in seen_names:
             continue
-        seen_names.add(filename)
+        seen_names.add(name)
 
         fileInputs.append({
-            "name": filename,
+            "name": name,
             "sourceUrl": settings.REACT_URL + "backend/" + ns.file.name,
-            "targetPath": filename
+            "targetPath": name + ".fastq.gz"
         })
 
     job_params = {
