@@ -26,11 +26,11 @@ import tempfile
 import time
 import uuid
 #from django.shortcuts import render
-from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail, Dada2Result, RarefactionJobDetail, CoreMetricsJobDetail, CoreMetricsResult, GneissJobDetail, AncomJobDetail
+from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail, Dada2Result, RarefactionJobDetail, CoreMetricsJobDetail, CoreMetricsResult, GneissJobDetail, AncomJobDetail, PronameImportJobDetail, PronameFilterJobDetail, PronameRefineJobDetail, PronameRefineResult, PronameTaxonomyJobDetail
 from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file, extract_qiime2_metadata_sample_ids, get_max_rarefaction_depth, get_user_job_status, stop_job, validate_metabarcoding_pairs
 import gzip
 import shutil
-from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task, submit_rarefaction_job_task, submit_coremetrics_job_task, submit_gneiss_job_task, submit_ancom_job_task  # Celery task
+from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task, submit_rarefaction_job_task, submit_coremetrics_job_task, submit_gneiss_job_task, submit_ancom_job_task, submit_proname_import_job_task  # Celery task
 from Bio import SeqIO
 import base64
 from .models import Author, MuscleTrim
@@ -5317,31 +5317,68 @@ def rarefaction(request):
     except (TypeError, ValueError):
         return JSONResponse({"error": "Min and max depth must be integers."}, status=400)
 
-    # Ensure there's a finished DemuxResult for this project
+    # -----------------------------
+    # Get finished jobs
+    # -----------------------------
     finished_dada2_jobs = Job.objects.filter(
         project=project,
         appId=settings.QIIME2_DADA2_APP_ID,
         status='FINISHED'
     ).order_by('-id')
 
-    if not finished_dada2_jobs.exists():
-        return JsonResponse({'error': 'No completed dada2 job found for this project.'}, status=400)
+    finished_proname_refine_jobs = Job.objects.filter(
+        project=project,
+        appId=settings.QIIME2_PRONAME_REFINE_APP_ID,
+        status='FINISHED'
+    ).order_by('-id')
 
-    primary_jobs = finished_dada2_jobs.filter(primary=True)
+    if not finished_dada2_jobs.exists() and not finished_proname_refine_jobs.exists():
+        return JsonResponse(
+            {'error': 'No completed dada2 or proname refine job found for this project.'},
+            status=400
+        )
 
-    if primary_jobs.exists():
-        dada2_job = primary_jobs.first()
-    else:
-        dada2_job = finished_dada2_jobs.first()
+    # -----------------------------
+    # Select job (prefer DADA2)
+    # -----------------------------
+    source_job = None
+    source_result = None
+    source_job_detail = None
 
-    dada2_result = Dada2Result.objects.filter(job=dada2_job).first()
-    if not dada2_result or not dada2_result.rooted_tree_qza or not dada2_result.trim_table_qza:
-        return JsonResponse({'error': 'Rooted Tree or Trim Table QZA file not found.'}, status=400)
-    dada2_job_detail = Dada2JobDetail.objects.filter(job=dada2_job).first()
-    if not dada2_job_detail or not dada2_job_detail.metadata_file:
-        return JsonResponse({'error': 'Could not get dada2 metadata file.'}, status=400)
+    if finished_dada2_jobs.exists():
+        primary_jobs = finished_dada2_jobs.filter(primary=True)
+        source_job = primary_jobs.first() if primary_jobs.exists() else finished_dada2_jobs.first()
 
-    # Prevent duplicate active/queued Rarefaction jobs
+        if source_job:
+            source_result = Dada2Result.objects.filter(job=source_job).first()
+            source_job_detail = Dada2JobDetail.objects.filter(job=source_job).first()
+
+    elif finished_proname_refine_jobs.exists():
+        primary_jobs = finished_proname_refine_jobs.filter(primary=True)
+        source_job = primary_jobs.first() if primary_jobs.exists() else finished_proname_refine_jobs.first()
+
+        if source_job:
+            source_result = PronameRefineResult.objects.filter(job=source_job).first()
+            source_job_detail = PronameRefineJobDetail.objects.filter(job=source_job).first()
+
+    # -----------------------------
+    # Validate required inputs
+    # -----------------------------
+    if not source_result or not getattr(source_result, 'rooted_tree_qza', None) or not getattr(source_result, 'trim_table_qza', None):
+        return JsonResponse(
+            {'error': 'Rooted Tree or Trim Table QZA file not found.'},
+            status=400
+        )
+
+    if not source_job_detail or not getattr(source_job_detail, 'metadata_file', None):
+        return JsonResponse(
+            {'error': 'Could not get metadata file.'},
+            status=400
+        )
+
+    # -----------------------------
+    # Prevent duplicate / active jobs
+    # -----------------------------
     active_rarefaction_exists = Job.objects.filter(
         user=user,
         appId=settings.QIIME2_RAREFACTION_APP_ID
@@ -5351,12 +5388,13 @@ def rarefaction(request):
         return JsonResponse({
             'error': 'You already have an active or queued Rarefaction job. Please wait for it to finish.'
         }, status=400)
+
     existing_detail = (
         RarefactionJobDetail.objects.filter(
             job__status='FINISHED',
             job__project=project,
             job__appId=settings.QIIME2_RAREFACTION_APP_ID,
-            dada2_job=dada2_job,
+            dada2_job=source_job,  # keeping field name unchanged
             minDepth=minDepth,
             maxDepth=maxDepth,
         )
@@ -5364,31 +5402,39 @@ def rarefaction(request):
         .order_by('-job__id')
         .first()
     )
+
     if existing_detail:
         return JsonResponse({
             'error': f"A successful Rarefaction job with these parameters already exists for this project: ar{existing_detail.job.id}",
         }, status=400)
 
-    # Create Job placeholder
+    # -----------------------------
+    # Create Job
+    # -----------------------------
     job = placeholder_tapis_job(user, settings.QIIME2_RAREFACTION_APP_ID)
     job.project = project
     job.save()
 
+    # -----------------------------
     # Save job details
+    # -----------------------------
     RarefactionJobDetail.objects.create(
         job=job,
-        dada2_job=dada2_job,
+        dada2_job=source_job,  # keeping DB schema unchanged
         minDepth=minDepth,
         maxDepth=maxDepth,
     )
 
+    # -----------------------------
     # Submit async task
+    # -----------------------------
     submit_rarefaction_job_task.delay(
         job.id,
-        dada2_result.rooted_tree_qza.name,
-        dada2_result.trim_table_qza.name,
-        dada2_job_detail.metadata_file.file.name,
-        minDepth, maxDepth
+        source_result.rooted_tree_qza.name,
+        source_result.trim_table_qza.name,
+        source_job_detail.metadata_file.file.name,
+        minDepth,
+        maxDepth
     )
 
     return JsonResponse({'job_uuid': job.uuid, 'status': job.status})
@@ -5414,31 +5460,71 @@ def coremetrics(request):
     if sdepth < 10 or sdepth > 20000:
         return JSONResponse({"error": "Sampling depth must be between 10 and 20000"}, status=400)
 
-    # Ensure there's a finished Dada2Result for this project
+
+    # -----------------------------
+    # Get finished jobs
+    # -----------------------------
     finished_dada2_jobs = Job.objects.filter(
         project=project,
         appId=settings.QIIME2_DADA2_APP_ID,
         status='FINISHED'
     ).order_by('-id')
 
-    if not finished_dada2_jobs.exists():
-        return JsonResponse({'error': 'No completed dada2 job found for this project.'}, status=400)
+    finished_proname_refine_jobs = Job.objects.filter(
+        project=project,
+        appId=settings.QIIME2_PRONAME_REFINE_APP_ID,
+        status='FINISHED'
+    ).order_by('-id')
 
-    primary_jobs = finished_dada2_jobs.filter(primary=True)
+    if not finished_dada2_jobs.exists() and not finished_proname_refine_jobs.exists():
+        return JsonResponse(
+            {'error': 'No completed dada2 or proname refine job found for this project.'},
+            status=400
+        )
 
-    if primary_jobs.exists():
-        dada2_job = primary_jobs.first()
-    else:
-        dada2_job = finished_dada2_jobs.first()
+    # -----------------------------
+    # Select job (prefer DADA2)
+    # -----------------------------
+    source_job = None
+    source_result = None
+    source_job_detail = None
 
-    dada2_result = Dada2Result.objects.filter(job=dada2_job).first()
-    if not dada2_result or not dada2_result.rooted_tree_qza or not dada2_result.trim_table_qza or not dada2_result.rep_seqs_qza:
-        return JsonResponse({'error': 'Rooted Tree or Trim Table or Rep Seqs QZA file not found.'}, status=400)
-    dada2_job_detail = Dada2JobDetail.objects.filter(job=dada2_job).first()
-    if not dada2_job_detail or not dada2_job_detail.metadata_file:
-        return JsonResponse({'error': 'Could not get dada2 metadata file.'}, status=400)
+    if finished_dada2_jobs.exists():
+        primary_jobs = finished_dada2_jobs.filter(primary=True)
+        source_job = primary_jobs.first() if primary_jobs.exists() else finished_dada2_jobs.first()
 
-    # Prevent duplicate active/queued Core metrics jobs
+        if source_job:
+            source_result = Dada2Result.objects.filter(job=source_job).first()
+            source_job_detail = Dada2JobDetail.objects.filter(job=source_job).first()
+
+    elif finished_proname_refine_jobs.exists():
+        primary_jobs = finished_proname_refine_jobs.filter(primary=True)
+        source_job = primary_jobs.first() if primary_jobs.exists() else finished_proname_refine_jobs.first()
+
+        if source_job:
+            source_result = PronameRefineResult.objects.filter(job=source_job).first()
+            source_job_detail = PronameRefineJobDetail.objects.filter(job=source_job).first()
+
+    # -----------------------------
+    # Validate required inputs
+    # -----------------------------
+    if (
+        not source_result
+        or not getattr(source_result, 'rooted_tree_qza', None)
+        or not getattr(source_result, 'trim_table_qza', None)
+        or not getattr(source_result, 'rep_seqs_qza', None)
+    ):
+        return JsonResponse(
+            {'error': 'Rooted Tree or Trim Table or Rep Seqs QZA file not found.'},
+            status=400
+        )
+
+    if not source_job_detail or not getattr(source_job_detail, 'metadata_file', None):
+        return JsonResponse({'error': 'Could not get metadata file.'}, status=400)
+
+    # -----------------------------
+    # Prevent duplicate / active jobs
+    # -----------------------------
     active_coremetrics_exists = Job.objects.filter(
         user=user,
         appId=settings.QIIME2_COREMETRICS_APP_ID
@@ -5453,7 +5539,7 @@ def coremetrics(request):
             job__status='FINISHED',
             job__project=project,
             job__appId=settings.QIIME2_COREMETRICS_APP_ID,
-            dada2_job=dada2_job,
+            dada2_job=source_job,  # DB field unchanged
             sdepth=sdepth,
             classifier=classifier,
         )
@@ -5474,7 +5560,7 @@ def coremetrics(request):
     # Save job details
     CoreMetricsJobDetail.objects.create(
         job=job,
-        dada2_job=dada2_job,
+        dada2_job=source_job,  # DB schema unchanged
         sdepth=sdepth,
         classifier=classifier,
     )
@@ -5484,10 +5570,10 @@ def coremetrics(request):
     # Submit async task
     submit_coremetrics_job_task.delay(
         job.id,
-        dada2_result.rooted_tree_qza.name,
-        dada2_result.trim_table_qza.name,
-        dada2_result.rep_seqs_qza.name,
-        dada2_job_detail.metadata_file.file.name,
+        source_result.rooted_tree_qza.name,
+        source_result.trim_table_qza.name,
+        source_result.rep_seqs_qza.name,
+        source_job_detail.metadata_file.file.name,
         classifier_file,
         sdepth
     )
@@ -5667,12 +5753,16 @@ def ancom(request):
 
     coremetrics_result = CoreMetricsResult.objects.filter(job=coremetrics_job).first()
     dada2_result = Dada2Result.objects.filter(job=dada2_job).first()
+    if not dada2_result:
+        dada2_result = PronameRefineResult.objects.filter(job=dada2_job).first()
 
     if not dada2_result or not dada2_result.trim_table_qza or not coremetrics_result or not coremetrics_result.taxonomy_qza:
         return JsonResponse({'error': 'Trim Table or Taxonomy QZA file not found.'}, status=400)
     dada2_job_detail = Dada2JobDetail.objects.filter(job=dada2_job).first()
+    if not dada2_job_detail:
+        dada2_job_detail = PronameRefineJobDetail.objects.filter(job=dada2_job).first()
     if not dada2_job_detail or not dada2_job_detail.metadata_file:
-        return JsonResponse({'error': 'Could not get dada2 metadata file.'}, status=400)
+        return JsonResponse({'error': 'Could not get dada2 or proname refine metadata file.'}, status=400)
 
     # Prevent duplicate active/queued Ancom jobs
     active_ancom_exists = Job.objects.filter(
@@ -6365,3 +6455,68 @@ def ub_classifiers(request):
     return JsonResponse({
         'classifiers': list(classifiers)
     })
+
+def proname_import(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    project = parsed_data['project']
+    data = parsed_data['data']
+    kit = data.get("kit", "")
+    forwardPrimer = data.get("forwardPrimer", "")
+    reversePrimer = data.get("reversePrimer", "")
+    trimPrimers = data.get("trimPrimers", False)
+    trimAdapters = data.get("trimAdapters", False)
+    hasDuplex = data.get("hasDuplex", False)
+
+    if not kit or len(kit) > 64:
+        return JsonResponse({'error': 'Kit name is required and must be no more than 64 characters.'}, status=400)
+
+    if not all(isinstance(x, bool) for x in [trimPrimers, trimAdapters, hasDuplex]):
+        return JsonResponse({'error': 'Invalid boolean fields.'}, status=400)
+
+    if trimPrimers:
+        if not isinstance(forwardPrimer, str) or not isinstance(reversePrimer, str):
+            return JsonResponse({'error': 'Primers must be strings.'}, status=400)
+        PRIMER_REGEX = re.compile(r'^[ACGTRYSWKMBDHVN]+$', re.IGNORECASE)
+        invalid = (
+            not forwardPrimer
+            or not reversePrimer
+            or not (15 <= len(forwardPrimer) <= 40)
+            or not (15 <= len(reversePrimer) <= 40)
+            or not PRIMER_REGEX.fullmatch(forwardPrimer)
+            or not PRIMER_REGEX.fullmatch(reversePrimer)
+        )
+        if invalid:
+            return JsonResponse({'error': 'Invalid primers.'}, status=400)
+
+    user = request.user
+
+    active_proname_import_job_exists = Job.objects.filter(
+        user=user,
+        appId=settings.QIIME2_PRONAME_IMPORT_APP_ID,
+    ).exclude(status__in=['FINISHED', 'FAILED', 'STOPPED', 'CANCELLED', 'FAILED_BOOT']).exists()
+
+    if active_proname_import_job_exists:
+        return JsonResponse({
+            'error': 'You already have an active or queued proname import job. Please wait for it to finish before starting another.'
+        }, status=400)
+
+    metabarcoding_files = ProjectMetabarcodingFile.objects.filter(project=project).select_related('metabarcoding_file')
+    if not metabarcoding_files.exists():
+        return JsonResponse({'error': 'No metabarcoding files found for this project.'}, status=400)
+    job = placeholder_tapis_job(user, settings.QIIME2_PRONAME_IMPORT_APP_ID)
+    job.project = project
+    job.save()
+    PronameImportJobDetail.objects.create(
+        job=job,
+        forward_primer=forwardPrimer,
+        reverse_primer=reversePrimer,
+        kit=kit,
+        has_duplex=hasDuplex,
+        trim_adapters=trimAdapters,
+        trim_primers=trimPrimers
+    )
+    submit_proname_import_job_task.delay(job.id, forwardPrimer, reversePrimer, kit, hasDuplex, trimAdapters, trimPrimers)
+    return JsonResponse({'job_uuid': job.uuid, 'status': job.status})

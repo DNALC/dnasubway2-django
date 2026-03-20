@@ -1358,3 +1358,62 @@ def submit_ancom_job_task(job_id, trim_table_qza_path, taxonomy_qza_path, metada
     except Exception as e:
         job.status = 'FAILED'
         job.save()
+
+@shared_task
+def submit_proname_import_job_task(job_id, forwardPrimer, reversePrimer, kit, hasDuplex, trimAdapters, trimPrimers):
+    job = Job.objects.get(id=job_id)
+    project = job.project
+    user = job.user
+
+    # Prepare fileInputs
+    metabarcoding_files = (
+        ProjectMetabarcodingFile.objects
+        .filter(project=project)
+        .exclude(metabarcoding_file__source='proname_import')
+        .select_related('metabarcoding_file')
+    )
+    fileInputs = []
+    seen_names = set()
+    for f in metabarcoding_files:
+        mf = f.metabarcoding_file
+        filename = mf.name
+        if filename in seen_names:
+            continue
+        seen_names.add(filename)
+
+        fileInputs.append({
+            "name": filename,
+            "sourceUrl": settings.REACT_URL + "backend/" + mf.file.name,
+            "targetPath": filename
+        })
+
+    job_params = {
+        "name": "proname_import",
+        "appId": settings.QIIME2_PRONAME_IMPORT_APP_TAPIS_ID,
+        "appVersion": settings.QIIME2_PRONAME_IMPORT_APP_VERSION,
+        "fileInputs": fileInputs,
+        "parameterSet": {
+            "envVariables": [
+                {"key": "FORWARD_PRIMER", "value": forwardPrimer},
+                {"key": "REVERSE_PRIMER", "value": reversePrimer},
+                {"key": "KIT", "value": kit},
+                {"key": "HAS_DUPLEX", "value": "yes" if hasDuplex else "no"},
+                {"key": "TRIM_ADAPTERS", "value": "yes" if trimAdapters else "no"},
+                {"key": "TRIM_PRIMERS", "value": "yes" if trimPrimers else "no"}
+            ]
+        }
+    }
+
+    try:
+        get_service_token()
+        user_token = generate_user_token(user.username)
+        t = connect_to_tapis(user.username, user_token)
+        tapis_job_response = t.jobs.submitJob(**job_params)
+
+        job.uuid = tapis_job_response.get('uuid')
+        job.status = tapis_job_response.get('status', 'PENDING')
+        job.save()
+
+    except Exception as e:
+        job.status = 'FAILED'
+        job.save()
