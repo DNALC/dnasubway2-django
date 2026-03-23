@@ -1566,7 +1566,7 @@ def project_info(request):
                         "cluster_id": detail.cluster_id,
                         "clustering_method": detail.clustering_method,
                         "medaka_model": detail.medaka_model,
-                        "metadata_file": detail.metadata_file,
+                        "metadata_file": detail.metadata_file.id,
                     })
 
                 # Proname Refine results
