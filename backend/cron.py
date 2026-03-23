@@ -1,7 +1,7 @@
 from django.conf import settings
 import os
 import re
-from .models import BasecallingJob, PodFile, NanoporeSequence, UserNanoporeSequence, JobPodFile, DataFolder, NanoporeSequenceFolder, DemuxResult, Dada2Result, RarefactionResult, CoreMetricsResult, GneissResult, AncomResult, Job
+from .models import BasecallingJob, PodFile, NanoporeSequence, UserNanoporeSequence, JobPodFile, DataFolder, NanoporeSequenceFolder, DemuxResult, Dada2Result, RarefactionResult, CoreMetricsResult, GneissResult, AncomResult, Job, PronameImportResult, ProjectNanoporeSequence
 from .utils import (
     shelve_instance,
     ensure_instance_ready,
@@ -596,6 +596,154 @@ def check_ancom_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
     job_obj.save(update_fields=["status"])
     tprint("Ancom job status:", current_status)
 
+def check_proname_import_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
+    tprint(f"Checking proname import job {job_uuid}")
+
+    status = get_job_status(tapis, job_uuid)
+    if not status:
+        return
+
+    current_status = status.get("status", "UNKNOWN")
+    tprint(f"Current status: {current_status}")
+
+    user = job_obj.user
+
+    if current_status == "FINISHED":
+        job_obj.status = "FINISHING"
+        job_obj.save(update_fields=["status"])
+
+        all_files = list_all_files(tapis, job_uuid)
+
+        FILE_MAP = {
+            "simplex_plot": {
+                "match": "LengthvsQualityScatterPlot_simplex.png",
+                "filename": "simplex-plot.png",
+            },
+            "duplex_plot": {
+                "match": "LengthvsQualityScatterPlot_duplex.png",
+                "filename": "duplex-plot.png",
+            },
+            "dual_plot": {
+                "match": "LengthvsQualityScatterPlot_simplex_duplex.png",
+                "filename": "dual-plot.png",
+            },
+            "simplex_distribution": {
+                "match": "simplex_read_distribution.tsv",
+                "filename": "simplex-distribution.tsv",
+            },
+            "duplex_distribution": {
+                "match": "duplex_read_distribution.tsv",
+                "filename": "duplex-distribution.tsv",
+            },
+            "dual_distribution": {
+                "match": "simplex_duplex_read_distribution.tsv",
+                "filename": "dual-distribution.tsv",
+            },
+            "simplex_reads": {
+                "match": "reads_simplex.fastq",
+                "filename": "reads_simplex.fastq",
+            },
+            "duplex_reads": {
+                "match": "reads_duplex.fastq",
+                "filename": "reads_duplex.fastq",
+            },
+            "dual_reads": {
+                "match": "reads_simplex_duplex.fastq",
+                "filename": "reads_simplex_duplex.fastq",
+            },
+        }
+
+        found_files = {}
+        modified_inputs = []
+
+        for file_path in all_files:
+            for key, meta in FILE_MAP.items():
+                if file_path.endswith(meta["match"]):
+                    found_files[key] = file_path
+
+            if file_path.startswith("/input_data/"):
+                modified_inputs.append(file_path)
+
+        has_reads = any(k in found_files for k in ["simplex_reads", "duplex_reads", "dual_reads"])
+
+        if not (modified_inputs and has_reads):
+            job_obj.status = "FAILED"
+            job_obj.save(update_fields=["status"])
+            return
+
+        proname_import_result, _ = PronameImportResult.objects.get_or_create(job=job_obj)
+
+        def download_and_save(field_name, remote_file_path, filename):
+            full_path = f"scratch/{user.username}/job-{job_uuid}/{remote_file_path.lstrip('/')}"
+            content = download_tapis_file("js2_dnasubway2", user_token, full_path)
+            if content:
+                getattr(proname_import_result, field_name).save(
+                    filename,
+                    ContentFile(content),
+                    save=False
+                )
+                return True
+            return False
+
+        archived_flags = {}
+
+        for key, meta in FILE_MAP.items():
+            if key in found_files:
+                tprint(f"GET {found_files[key]}")
+                archived_flags[key] = download_and_save(
+                    key,
+                    found_files[key],
+                    f"{proname_import_result.id}-{meta['filename']}"
+                )
+
+        # Ensure at least one file downloaded
+        if not any(archived_flags.values()):
+            tprint("No files successfully downloaded")
+            job_obj.status = "FAILED"
+            job_obj.save(update_fields=["status"])
+            return
+
+        # Process modified input FASTQs
+        for file_path in modified_inputs:
+            full_path = f"scratch/{user.username}/job-{job_uuid}/{file_path.lstrip('/')}"
+            file_content = download_tapis_file("js2_dnasubway2", user_token, full_path)
+
+            if not file_content:
+                tprint(f"Failed to download input file: {file_path}")
+                continue
+
+            nanopore_sequence = NanoporeSequence.objects.create(
+                name=os.path.splitext(os.path.basename(file_path))[0],
+                source="proname_import",
+                proname_import_result=proname_import_result,
+            )
+
+            nanopore_sequence.file.save(
+                f"{nanopore_sequence.id}.fastq.gz",
+                ContentFile(file_content)
+            )
+
+            ProjectNanoporeSequence.objects.create(
+                project=job_obj.project,
+                nanopore_sequence=nanopore_sequence
+            )
+
+        proname_import_result.save()
+
+        # Cleanup remote job dir
+        try:
+            admin_tapis.files.delete(
+                systemId="js2_dnasubway2",
+                path=f"scratch/{user.username}/job-{job_uuid}/",
+            )
+            tprint(f"Deleted /scratch/{user.username}/job-{job_uuid}/ from Tapis")
+        except Exception as e:
+            tprint(f"Failed to delete job files for {job_uuid}: {e}")
+
+    job_obj.status = current_status
+    job_obj.save(update_fields=["status"])
+    tprint("Proname import job status:", current_status)
+
 def check_job(tapis, job_uuid, job_obj, admin_tapis):
     tprint("Checking job " + job_uuid)
     status = get_job_status(tapis, job_uuid)
@@ -701,6 +849,11 @@ def poll_active_jobs():
         .filter(appId=settings.QIIME2_ANCOM_APP_ID)
         .exclude(status__in=['FINISHED', 'CANCELLED', 'FAILED', 'STOPPED', 'STARTING', 'FAILED_BOOT', 'FINISHING'])
     )
+    proname_import_jobs = (
+        Job.objects
+        .filter(appId=settings.QIIME2_PRONAME_IMPORT_APP_ID)
+        .exclude(status__in=['FINISHED', 'CANCELLED', 'FAILED', 'STOPPED', 'STARTING', 'FAILED_BOOT', 'FINISHING'])
+    )
     if demux_jobs.exists():
         usernames = set(j.user.username for j in demux_jobs)
 
@@ -773,6 +926,18 @@ def poll_active_jobs():
 
             for job in user_ancom_jobs:
                 check_ancom_job(tapis, user_token, job.uuid, job, admin_tapis)
+    if proname_import_jobs.exists():
+        usernames = set(j.user.username for j in proname_import_jobs)
+
+        for username in usernames:
+            tprint("Checking proname import jobs for user " + username)
+            user_proname_import_jobs = [j for j in proname_import_jobs if j.user.username == username]
+
+            user_token = generate_user_token(username)
+            tapis = connect_to_tapis(username, user_token)
+
+            for job in user_proname_import_jobs:
+                check_proname_import_job(tapis, user_token, job.uuid, job, admin_tapis)
     # 1. Query active jobs
     jobs = (
         BasecallingJob.objects
