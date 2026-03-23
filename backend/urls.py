@@ -103,6 +103,8 @@ urlpatterns = [
     path("backend/set_job_primary", set_job_primary, name='set_job_primary'),
     path("backend/job_info", job_info, name='job_info'),
     path("backend/proname_import", proname_import, name='proname_import'),
+    path("backend/proname_filter", proname_import, name='proname_filter'),
+    path("backend/proname_refine", proname_refine, name='proname_refine'),
 ]
 
 

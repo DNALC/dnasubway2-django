@@ -1417,3 +1417,155 @@ def submit_proname_import_job_task(job_id, forwardPrimer, reversePrimer, kit, ha
     except Exception as e:
         job.status = 'FAILED'
         job.save()
+
+@shared_task
+def submit_proname_filter_job_task(job_id, dataType, filtMinLength, filtMaxLength, filtMinQual, proname_import_result):
+    job = Job.objects.get(id=job_id)
+    project = job.project
+    user = job.user
+
+    # Prepare fileInputs
+    nanopore_sequences = (
+        ProjectNanoporeSequence.objects
+        .filter(project=project, nanopore_sequence__source='proname_import')
+        .select_related('nanopore_sequence')
+    )
+    fileInputs = []
+    seen_names = set()
+    for f in nanopore_sequences:
+        ns = f.nanopore_sequence
+        name = ns.name
+        if name in seen_names:
+            continue
+        seen_names.add(name)
+
+        fileInputs.append({
+            "name": name,
+            "sourceUrl": settings.REACT_URL + "backend/" + ns.file.name,
+            "targetPath": name + ".fastq"
+        })
+
+    if proname_import_result:
+        if proname_import_result.simplex_reads:
+            fileInputs.append({
+                "name": "reads_simplex.fastq",
+                "sourceUrl": settings.REACT_URL + "backend/" + proname_import_result.simplex_reads.name,
+                "targetPath": "reads_simplex.fastq"
+            })
+        if proname_import_result.duplex_reads:
+            fileInputs.append({
+                "name": "reads_duplex.fastq",
+                "sourceUrl": settings.REACT_URL + "backend/" + proname_import_result.duplex_reads.name,
+                "targetPath": "reads_duplex.fastq"
+            })
+        if proname_import_result.dual_reads:
+            fileInputs.append({
+                "name": "reads_simplex_duplex.fastq",
+                "sourceUrl": settings.REACT_URL + "backend/" + proname_import_result.dual_reads.name,
+                "targetPath": "reads_simplex_duplex.fastq"
+            })
+
+    job_params = {
+        "name": "proname_filter",
+        "appId": settings.QIIME2_PRONAME_FILTER_APP_TAPIS_ID,
+        "appVersion": settings.QIIME2_PRONAME_FILTER_APP_VERSION,
+        "fileInputs": fileInputs,
+        "parameterSet": {
+            "envVariables": [
+                {"key": "DATA_TYPE", "value": dataType},
+                {"key": "FILT_MIN_LENGTH", "value": str(filtMinLength)},
+                {"key": "FILT_MAX_LENGTH", "value": str(filtMaxLength)},
+                {"key": "FILT_MIN_QUAL", "value": str(filtMinQual)},
+            ]
+        }
+    }
+
+    try:
+        get_service_token()
+        user_token = generate_user_token(user.username)
+        t = connect_to_tapis(user.username, user_token)
+        tapis_job_response = t.jobs.submitJob(**job_params)
+
+        job.uuid = tapis_job_response.get('uuid')
+        job.status = tapis_job_response.get('status', 'PENDING')
+        job.save()
+
+    except Exception as e:
+        job.status = 'FAILED'
+        job.save()
+
+@shared_task
+def submit_proname_refine_job_task(job_id, clusterId, clusteringMethod, medakaModel, chimeraDb, proname_filter_result):
+    job = Job.objects.get(id=job_id)
+    project = job.project
+    user = job.user
+
+    # Prepare fileInputs
+    nanopore_sequences = (
+        ProjectNanoporeSequence.objects
+        .filter(project=project, nanopore_sequence__source='proname_import')
+        .select_related('nanopore_sequence')
+    )
+    fileInputs = []
+    seen_names = set()
+    for f in nanopore_sequences:
+        ns = f.nanopore_sequence
+        name = ns.name
+        if name in seen_names:
+            continue
+        seen_names.add(name)
+
+        fileInputs.append({
+            "name": name,
+            "sourceUrl": settings.REACT_URL + "backend/" + ns.file.name,
+            "targetPath": name + ".fastq"
+        })
+
+    if proname_filter_result:
+        if proname_filter_result.simplex_reads:
+            fileInputs.append({
+                "name": "HQ_simplex_seqs.fastq",
+                "sourceUrl": settings.REACT_URL + "backend/" + proname_filter_result.simplex_reads.name,
+                "targetPath": "HQ_simplex_seqs.fastq"
+            })
+        if proname_filter_result.duplex_reads:
+            fileInputs.append({
+                "name": "HQ_duplex_seqs.fastq",
+                "sourceUrl": settings.REACT_URL + "backend/" + proname_filter_result.duplex_reads.name,
+                "targetPath": "HQ_duplex_seqs.fastq"
+            })
+        if proname_result.dual_reads:
+            fileInputs.append({
+                "name": "HQ_simplex_duplex_seqs.fastq",
+                "sourceUrl": settings.REACT_URL + "backend/" + proname_filter_result.dual_reads.name,
+                "targetPath": "HQ_simplex_duplex_seqs.fastq"
+            })
+
+    job_params = {
+        "name": "proname_refine",
+        "appId": settings.QIIME2_PRONAME_REFINE_APP_TAPIS_ID,
+        "appVersion": settings.QIIME2_PRONAME_REFINE_APP_VERSION,
+        "fileInputs": fileInputs,
+        "parameterSet": {
+            "envVariables": [
+                {"key": "CLUSTER_ID", "value": str(clusterId)},
+                {"key": "CLUSTERING_METHOD", "value": clusteringMethod},
+                {"key": "MEDAKA_MODEL", "value": medakaModel},
+                {"key": "CHIMERA_DB", "value": settings.CHIMERA_DBS.get(chimeraDb, settings.CHIMERA_DBS["greengenes2"])},
+            ]
+        }
+    }
+
+    try:
+        get_service_token()
+        user_token = generate_user_token(user.username)
+        t = connect_to_tapis(user.username, user_token)
+        tapis_job_response = t.jobs.submitJob(**job_params)
+
+        job.uuid = tapis_job_response.get('uuid')
+        job.status = tapis_job_response.get('status', 'PENDING')
+        job.save()
+
+    except Exception as e:
+        job.status = 'FAILED'
+        job.save()

@@ -26,11 +26,11 @@ import tempfile
 import time
 import uuid
 #from django.shortcuts import render
-from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail, Dada2Result, RarefactionJobDetail, CoreMetricsJobDetail, CoreMetricsResult, GneissJobDetail, AncomJobDetail, PronameImportJobDetail, PronameFilterJobDetail, PronameRefineJobDetail, PronameRefineResult, PronameTaxonomyJobDetail
+from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail, Dada2Result, RarefactionJobDetail, CoreMetricsJobDetail, CoreMetricsResult, GneissJobDetail, AncomJobDetail, PronameImportJobDetail, PronameImportResult, PronameFilterJobDetail, PronameFilterResult, PronameRefineJobDetail, PronameRefineResult, PronameTaxonomyJobDetail
 from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file, extract_qiime2_metadata_sample_ids, get_max_rarefaction_depth, get_user_job_status, stop_job, validate_metabarcoding_pairs
 import gzip
 import shutil
-from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task, submit_rarefaction_job_task, submit_coremetrics_job_task, submit_gneiss_job_task, submit_ancom_job_task, submit_proname_import_job_task  # Celery task
+from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task, submit_rarefaction_job_task, submit_coremetrics_job_task, submit_gneiss_job_task, submit_ancom_job_task, submit_proname_import_job_task, submit_proname_filter_job_task, submit_proname_filter_job_task # Celery task
 from Bio import SeqIO
 import base64
 from .models import Author, MuscleTrim
@@ -6686,4 +6686,176 @@ def proname_import(request):
         trim_primers=trimPrimers
     )
     submit_proname_import_job_task.delay(job.id, forwardPrimer, reversePrimer, kit, hasDuplex, trimAdapters, trimPrimers)
+    return JsonResponse({'job_uuid': job.uuid, 'status': job.status})
+
+def proname_filter(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    project = parsed_data['project']
+    data = parsed_data['data']
+    dataType = data.get("dataType", "simplex")
+    try:
+        filtMaxLength = int(data.get("filtmaxlength", 5000))
+        filtMinLength = int(data.get("filtminlength", 1))
+        filtMinQual = int(data.get("filtMinQual", 15))
+    except (ValueError, TypeError):
+        return JsonResponse({'error': 'Filter parameters must be integers.'}, status=400)
+
+    if not (1 <= filtMaxLength <= 10000):
+        return JsonResponse({'error': 'filtMaxLength must be between 1 and 10000.'}, status=400)
+
+    if not (1 <= filtMinLength <= 5000):
+        return JsonResponse({'error': 'filtMaxLength must be between 1 and 5000.'}, status=400)
+
+    if not (0 <= filtMinQual <= 60):
+        return JsonResponse({'error': 'filtMinQual must be between 0 and 60.'}, status=400)
+
+    if filtMinLength > filtMaxLength:
+        return JsonResponse({'error': 'filtMinLength cannot be greater than filtMaxLength.'}, status=400)
+
+    if dataType not in ["simplex", "duplex", "both"]:
+        return JsonResponse({'error': 'Invalid data type.'}, status=400)
+
+    user = request.user
+
+    active_proname_filter_job_exists = Job.objects.filter(
+        user=user,
+        appId=settings.QIIME2_PRONAME_FILTER_APP_ID,
+    ).exclude(status__in=['FINISHED', 'FAILED', 'STOPPED', 'CANCELLED', 'FAILED_BOOT']).exists()
+
+    if active_proname_filter_job_exists:
+        return JsonResponse({
+            'error': 'You already have an active or queued proname filter job. Please wait for it to finish before starting another.'
+        }, status=400)
+
+    nanopore_sequences = (
+        ProjectNanoporeSequence.objects
+        .filter(project=project, nanopore_sequence__source='proname_import')
+        .select_related('nanopore_sequence')
+    )
+    if not nanopore_sequences.exists():
+        return JsonResponse({'error': 'No proname import metabarcoding output files found for this project.'}, status=400)
+    proname_import_result = None
+    finished_proname_import_jobs = Job.objects.filter(
+        project=project,
+        appId=settings.QIIME2_PRONAME_IMPORT_APP_ID,
+        status='FINISHED'
+    ).order_by('-id')
+    if not finished_proname_import_jobs.exists():
+        return JsonResponse({'error': 'No completed proname import job found for this project.'}, status=400)
+
+    primary_jobs = finished_proname_import_jobs.filter(primary=True)
+    proname_import_job = primary_jobs.first() if primary_jobs.exists() else finished_proname_import_jobs.first()
+    if proname_import_job:
+        proname_import_result = PronameImportResult.objects.filter(job=proname_import_job).first()
+    required_read_fields = ['simplex_reads', 'duplex_reads', 'dual_reads']
+    if not proname_import_result or not any(getattr(proname_import_result, f, None) for f in required_read_fields):
+        return JsonResponse({'error': 'Simplex, duplex, and dual reads not found.'}, status=400)
+
+    job = placeholder_tapis_job(user, settings.QIIME2_PRONAME_FILTER_APP_ID)
+    job.project = project
+    job.save()
+    PronameFilterJobDetail.objects.create(
+        job=job,
+        data_type=dataType,
+        filt_min_length=filtMinLength,
+        filt_max_length=filtMaxLength,
+        filt_min_qual=filtMinQual
+    )
+    submit_proname_filter_job_task.delay(job.id, dataType, filtMinLength, filtMaxLength, filtMinQual, proname_import_result)
+    return JsonResponse({'job_uuid': job.uuid, 'status': job.status})
+
+def proname_refine(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    project = parsed_data['project']
+    data = parsed_data['data']
+    chimeraDb = data.get("chimeraDb")
+    clusterMethod = data.get("clusterMethod")
+    medakaModel = data.get("medakaModel")
+    file_id = data.get('metadata_file_id')
+    try:
+        raw_cluster_id = data.get("clusterId", 0.99)
+        clusterId = round(float(raw_cluster_id), 2)
+    except (ValueError, TypeError):
+        return JsonResponse({'error': 'clusterId must be a numeric decimal.'}, status=400)
+
+    if not file_id:
+        return JsonResponse({'error': 'metadata_file_id is required'}, status=400)
+
+    try:
+        metadata_file = MetadataFile.objects.get(id=file_id)
+    except MetadataFile.DoesNotExist:
+        return JsonResponse({'error': 'Metadata file not found'}, status=404)
+
+    if not metadata_file.validated:
+        return JsonResponse({'error': 'Metadata file not validated'}, status=400)
+
+    valid_chimera_dbs = [db[0] for db in PronameRefineJobDetail.CHIMERA_DBS]
+    valid_cluster_methods = [method[0] for method in PronameRefineJobDetail.CLUSTERING_METHODS]
+
+    if chimeraDb not in valid_chimera_dbs:
+        return JsonResponse({'error': f'Invalid Chimera DB. Must be one of: {", ".join(valid_chimera_dbs)}'}, status=400)
+
+    if clusterMethod not in valid_cluster_methods:
+        return JsonResponse({'error': f'Invalid Clustering Method. Must be one of: {", ".join(valid_cluster_methods)}'}, status=400)
+
+    if medakaModel not in PronameRefineJobDetail.MEDAKA_MODEL_LIST:
+        return JsonResponse({'error': 'Invalid Medaka Model selected.'}, status=400)
+
+    if not (0.0 <= clusterId <= 1.0):
+        return JsonResponse({'error': 'clusterId must be between 0.0 and 1.0.'}, status=400)
+
+    user = request.user
+
+    active_proname_refine_job_exists = Job.objects.filter(
+        user=user,
+        appId=settings.QIIME2_PRONAME_REFINE_APP_ID,
+    ).exclude(status__in=['FINISHED', 'FAILED', 'STOPPED', 'CANCELLED', 'FAILED_BOOT']).exists()
+
+    if active_proname_refine_job_exists:
+        return JsonResponse({
+            'error': 'You already have an active or queued proname refine job. Please wait for it to finish before starting another.'
+        }, status=400)
+
+    nanopore_sequences = (
+        ProjectNanoporeSequence.objects
+        .filter(project=project, nanopore_sequence__source='proname_import')
+        .select_related('nanopore_sequence')
+    )
+    if not nanopore_sequences.exists():
+        return JsonResponse({'error': 'No proname import metabarcoding output files found for this project.'}, status=400)
+    proname_filter_result = None
+    finished_proname_filter_jobs = Job.objects.filter(
+        project=project,
+        appId=settings.QIIME2_PRONAME_FILTER_APP_ID,
+        status='FINISHED'
+    ).order_by('-id')
+    if not finished_proname_filter_jobs.exists():
+        return JsonResponse({'error': 'No completed proname filter job found for this project.'}, status=400)
+
+    primary_jobs = finished_proname_filter_jobs.filter(primary=True)
+    proname_filter_job = primary_jobs.first() if primary_jobs.exists() else finished_proname_filter_jobs.first()
+    if proname_filter_job:
+        proname_filter_result = PronameFilterResult.objects.filter(job=proname_filter_job).first()
+    required_read_fields = ['simplex_reads', 'duplex_reads', 'dual_reads']
+    if not proname_filter_result or not any(getattr(proname_filter_result, f, None) for f in required_read_fields):
+        return JsonResponse({'error': 'Simplex, duplex, and dual reads not found.'}, status=400)
+
+    job = placeholder_tapis_job(user, settings.QIIME2_PRONAME_REFINE_APP_ID)
+    job.project = project
+    job.save()
+    PronameRefineJobDetail.objects.create(
+        job=job,
+        chimera_db=chimeraDb,
+        cluster_id=clusterId,
+        clustering_method=clusterMethod,
+        medaka_model=medakaModel,
+        metadata_file=metadata_file
+    )
+    submit_proname_refine_job_task.delay(job.id, clusterId, clusterMethod, medakaModel, chimeraDb, proname_filter_result)
     return JsonResponse({'job_uuid': job.uuid, 'status': job.status})
