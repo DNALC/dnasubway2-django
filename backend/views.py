@@ -6784,12 +6784,12 @@ def proname_refine(request):
 
     project = parsed_data['project']
     data = parsed_data['data']
-    chimeraDb = data.get("chimeraDb")
-    clusterMethod = data.get("clusterMethod")
-    medakaModel = data.get("medakaModel")
+    chimeraDb = data.get("chimeradb")
+    clusterMethod = data.get("clusteringmethod")
+    medakaModel = data.get("medakamodel")
     file_id = data.get('metadata_file_id')
     try:
-        raw_cluster_id = data.get("clusterId", 0.99)
+        raw_cluster_id = data.get("clusterid", 0.99)
         clusterId = round(float(raw_cluster_id), 2)
     except (ValueError, TypeError):
         return JsonResponse({'error': 'clusterId must be a numeric decimal.'}, status=400)
