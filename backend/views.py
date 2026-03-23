@@ -6754,6 +6754,16 @@ def proname_filter(request):
     if not proname_import_result or not any(getattr(proname_import_result, f, None) for f in required_read_fields):
         return JsonResponse({'error': 'Simplex, duplex, and dual reads not found.'}, status=400)
 
+    simplex_reads = None
+    duplex_reads = None
+    dual_reads = None
+    if proname_import_result and proname_import_result.simplex_reads:
+        simplex_reads = proname_import_result.simplex_reads.name
+    if proname_import_result and proname_import_result.duplex_reads:
+        duplex_reads = proname_import_result.duplex_reads.name
+    if proname_import_result and proname_import_result.dual_reads:
+        dual_reads = proname_import_result.dual_reads.name
+
     job = placeholder_tapis_job(user, settings.QIIME2_PRONAME_FILTER_APP_ID)
     job.project = project
     job.save()
@@ -6764,7 +6774,7 @@ def proname_filter(request):
         filt_max_length=filtMaxLength,
         filt_min_qual=filtMinQual
     )
-    submit_proname_filter_job_task.delay(job.id, dataType, filtMinLength, filtMaxLength, filtMinQual, proname_import_result)
+    submit_proname_filter_job_task.delay(job.id, dataType, filtMinLength, filtMaxLength, filtMinQual, simplex_reads, duplex_reads, dual_reads)
     return JsonResponse({'job_uuid': job.uuid, 'status': job.status})
 
 def proname_refine(request):
@@ -6846,6 +6856,16 @@ def proname_refine(request):
     if not proname_filter_result or not any(getattr(proname_filter_result, f, None) for f in required_read_fields):
         return JsonResponse({'error': 'Simplex, duplex, and dual reads not found.'}, status=400)
 
+    simplex_reads = None
+    duplex_reads = None
+    dual_reads = None
+    if proname_filter_result and proname_filter_result.simplex_reads:
+        simplex_reads = proname_filter_result.simplex_reads.name
+    if proname_filter_result and proname_filter_result.duplex_reads:
+        duplex_reads = proname_filter_result.duplex_reads.name
+    if proname_filter_result and proname_filter_result.dual_reads:
+        dual_reads = proname_filter_result.dual_reads.name
+
     job = placeholder_tapis_job(user, settings.QIIME2_PRONAME_REFINE_APP_ID)
     job.project = project
     job.save()
@@ -6857,5 +6877,5 @@ def proname_refine(request):
         medaka_model=medakaModel,
         metadata_file=metadata_file
     )
-    submit_proname_refine_job_task.delay(job.id, clusterId, clusterMethod, medakaModel, chimeraDb, proname_filter_result)
+    submit_proname_refine_job_task.delay(job.id, clusterId, clusterMethod, medakaModel, chimeraDb, simplex_reads, duplex_reads, dual_reads)
     return JsonResponse({'job_uuid': job.uuid, 'status': job.status})

@@ -1419,7 +1419,7 @@ def submit_proname_import_job_task(job_id, forwardPrimer, reversePrimer, kit, ha
         job.save()
 
 @shared_task
-def submit_proname_filter_job_task(job_id, dataType, filtMinLength, filtMaxLength, filtMinQual, proname_import_result):
+def submit_proname_filter_job_task(job_id, dataType, filtMinLength, filtMaxLength, filtMinQual, simplex_reads, duplex_reads, dual_reads):
     job = Job.objects.get(id=job_id)
     project = job.project
     user = job.user
@@ -1445,25 +1445,24 @@ def submit_proname_filter_job_task(job_id, dataType, filtMinLength, filtMaxLengt
             "targetPath": name + ".fastq"
         })
 
-    if proname_import_result:
-        if proname_import_result.simplex_reads:
-            fileInputs.append({
-                "name": "reads_simplex.fastq",
-                "sourceUrl": settings.REACT_URL + "backend/" + proname_import_result.simplex_reads.name,
-                "targetPath": "reads_simplex.fastq"
-            })
-        if proname_import_result.duplex_reads:
-            fileInputs.append({
-                "name": "reads_duplex.fastq",
-                "sourceUrl": settings.REACT_URL + "backend/" + proname_import_result.duplex_reads.name,
-                "targetPath": "reads_duplex.fastq"
-            })
-        if proname_import_result.dual_reads:
-            fileInputs.append({
-                "name": "reads_simplex_duplex.fastq",
-                "sourceUrl": settings.REACT_URL + "backend/" + proname_import_result.dual_reads.name,
-                "targetPath": "reads_simplex_duplex.fastq"
-            })
+    if simplex_reads:
+        fileInputs.append({
+            "name": "reads_simplex.fastq",
+            "sourceUrl": settings.REACT_URL + "backend/" + simplex_reads,
+            "targetPath": "reads_simplex.fastq"
+        })
+    if duplex_reads:
+        fileInputs.append({
+            "name": "reads_duplex.fastq",
+            "sourceUrl": settings.REACT_URL + "backend/" + duplex_reads,
+            "targetPath": "reads_duplex.fastq"
+        })
+    if dual_reads:
+        fileInputs.append({
+            "name": "reads_simplex_duplex.fastq",
+            "sourceUrl": settings.REACT_URL + "backend/" + dual_reads,
+            "targetPath": "reads_simplex_duplex.fastq"
+        })
 
     job_params = {
         "name": "proname_filter",
@@ -1495,7 +1494,7 @@ def submit_proname_filter_job_task(job_id, dataType, filtMinLength, filtMaxLengt
         job.save()
 
 @shared_task
-def submit_proname_refine_job_task(job_id, clusterId, clusteringMethod, medakaModel, chimeraDb, proname_filter_result):
+def submit_proname_refine_job_task(job_id, clusterId, clusteringMethod, medakaModel, chimeraDb, simplex_reads, duplex_reads, dual_reads):
     job = Job.objects.get(id=job_id)
     project = job.project
     user = job.user
@@ -1521,25 +1520,24 @@ def submit_proname_refine_job_task(job_id, clusterId, clusteringMethod, medakaMo
             "targetPath": name + ".fastq"
         })
 
-    if proname_filter_result:
-        if proname_filter_result.simplex_reads:
-            fileInputs.append({
-                "name": "HQ_simplex_seqs.fastq",
-                "sourceUrl": settings.REACT_URL + "backend/" + proname_filter_result.simplex_reads.name,
-                "targetPath": "HQ_simplex_seqs.fastq"
-            })
-        if proname_filter_result.duplex_reads:
-            fileInputs.append({
-                "name": "HQ_duplex_seqs.fastq",
-                "sourceUrl": settings.REACT_URL + "backend/" + proname_filter_result.duplex_reads.name,
-                "targetPath": "HQ_duplex_seqs.fastq"
-            })
-        if proname_result.dual_reads:
-            fileInputs.append({
-                "name": "HQ_simplex_duplex_seqs.fastq",
-                "sourceUrl": settings.REACT_URL + "backend/" + proname_filter_result.dual_reads.name,
-                "targetPath": "HQ_simplex_duplex_seqs.fastq"
-            })
+    if simplex_reads:
+        fileInputs.append({
+            "name": "HQ_simplex_seqs.fastq",
+            "sourceUrl": settings.REACT_URL + "backend/" + simplex_reads,
+            "targetPath": "HQ_simplex_seqs.fastq"
+        })
+    if duplex_reads:
+        fileInputs.append({
+            "name": "HQ_duplex_seqs.fastq",
+            "sourceUrl": settings.REACT_URL + "backend/" + duplex_reads,
+            "targetPath": "HQ_duplex_seqs.fastq"
+        })
+    if dual_reads:
+        fileInputs.append({
+            "name": "HQ_simplex_duplex_seqs.fastq",
+            "sourceUrl": settings.REACT_URL + "backend/" + dual_reads,
+            "targetPath": "HQ_simplex_duplex_seqs.fastq"
+        })
 
     job_params = {
         "name": "proname_refine",
