@@ -1050,10 +1050,23 @@ def project_info(request):
           user=request.user,
           nanopore_sequence=nanopore_sequence
         ).exists()
+
+        set_name = None
+        if sample_set and sample_set.name:
+            set_name = sample_set.name
+        else:
+            pir = getattr(nanopore_sequence, "proname_import_result", None)
+            job = getattr(pir, "job", None)
+            job_id = getattr(job, "id", None)
+
+            if job_id is not None:
+                set_name = f"pronameImport{job_id}"
+
         nanopore.append({
             'nanopore_sequence_id': nanopore_sequence.id,
+            'source': nanopore_sequence.source,
             'in_sequence_repository': in_repository,
-            'sample_set_name': sample_set.name if sample_set else None,
+            'sample_set_name': set_name,
             'sample_set': True if sample_set else False,
             'name': nanopore_sequence.name,
             'fastp_result': {
