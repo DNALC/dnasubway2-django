@@ -719,7 +719,7 @@ def check_proname_import_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
             )
 
             nanopore_sequence.file.save(
-                f"{nanopore_sequence.id}.fastq.gz",
+                f"{nanopore_sequence.id}.fastq",
                 ContentFile(file_content)
             )
 
