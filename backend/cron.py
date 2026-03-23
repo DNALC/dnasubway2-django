@@ -863,6 +863,109 @@ def check_proname_filter_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
     job_obj.save(update_fields=["status"])
     tprint("Proname filter job status:", current_status)
 
+def check_proname_refine_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
+    tprint(f"Checking proname refine job {job_uuid}")
+
+    status = get_job_status(tapis, job_uuid)
+    if not status:
+        return
+
+    current_status = status.get("status", "UNKNOWN")
+    tprint(f"Current status: {current_status}")
+
+    user = job_obj.user
+
+    if current_status == "FINISHED":
+        job_obj.status = "FINISHING"
+        job_obj.save(update_fields=["status"])
+
+        all_files = list_all_files(tapis, job_uuid)
+
+        FILE_MAP = {
+            "rep_seqs_qza": {
+                "match": "rep_seqs.qza",
+                "filename": "rep_seqs.qza",
+            },
+            "trim_table_qza": {
+                "match": "rep_table.qza",
+                "filename": "rep_table.qza",
+            },
+            "rooted_tree_qza": {
+                "match": "rooted_tree.qza",
+                "filename": "rooted_tree.qza",
+            },
+            "rep_table_tsv": {
+                "match": "rep_table.tsv",
+                "filename": "rep_table.tsv",
+            },
+            "rep_seqs_fasta": {
+                "match": "rep_seqs.fasta",
+                "filename": "rep_seqs.fasta",
+            },
+        }
+
+        found_files = {}
+
+        for file_path in all_files:
+            for key, meta in FILE_MAP.items():
+                if file_path.endswith(meta["match"]):
+                    found_files[key] = file_path
+
+        has_archives = all(k in found_files for k in ["rep_seqs_qza", "trim_table_qza", "rooted_tree_qza"])
+
+        if not has_archives:
+            job_obj.status = "FAILED"
+            job_obj.save(update_fields=["status"])
+            return
+
+        proname_refine_result, _ = PronameRefineResult.objects.get_or_create(job=job_obj)
+
+        def download_and_save(field_name, remote_file_path, filename):
+            full_path = f"scratch/{user.username}/job-{job_uuid}/{remote_file_path.lstrip('/')}"
+            content = download_tapis_file("js2_dnasubway2", user_token, full_path)
+            if content:
+                getattr(proname_refine_result, field_name).save(
+                    filename,
+                    ContentFile(content),
+                    save=False
+                )
+                return True
+            return False
+
+        archived_flags = {}
+
+        for key, meta in FILE_MAP.items():
+            if key in found_files:
+                tprint(f"GET {found_files[key]}")
+                archived_flags[key] = download_and_save(
+                    key,
+                    found_files[key],
+                    f"{proname_refine_result.id}-{meta['filename']}"
+                )
+
+        # Ensure at least one file downloaded
+        if not any(archived_flags.values()):
+            tprint("No files successfully downloaded")
+            job_obj.status = "FAILED"
+            job_obj.save(update_fields=["status"])
+            return
+
+        proname_refine_result.save()
+
+        # Cleanup remote job dir
+        try:
+            admin_tapis.files.delete(
+                systemId="js2_dnasubway2",
+                path=f"scratch/{user.username}/job-{job_uuid}/",
+            )
+            tprint(f"Deleted /scratch/{user.username}/job-{job_uuid}/ from Tapis")
+        except Exception as e:
+            tprint(f"Failed to delete job files for {job_uuid}: {e}")
+
+    job_obj.status = current_status
+    job_obj.save(update_fields=["status"])
+    tprint("Proname refine job status:", current_status)
+
 def check_job(tapis, job_uuid, job_obj, admin_tapis):
     tprint("Checking job " + job_uuid)
     status = get_job_status(tapis, job_uuid)
@@ -978,6 +1081,11 @@ def poll_active_jobs():
         .filter(appId=settings.QIIME2_PRONAME_FILTER_APP_ID)
         .exclude(status__in=['FINISHED', 'CANCELLED', 'FAILED', 'STOPPED', 'STARTING', 'FAILED_BOOT', 'FINISHING'])
     )
+    proname_refine_jobs = (
+        Job.objects
+        .filter(appId=settings.QIIME2_PRONAME_REFINE_APP_ID)
+        .exclude(status__in=['FINISHED', 'CANCELLED', 'FAILED', 'STOPPED', 'STARTING', 'FAILED_BOOT', 'FINISHING'])
+    )
     if demux_jobs.exists():
         usernames = set(j.user.username for j in demux_jobs)
 
@@ -1074,6 +1182,18 @@ def poll_active_jobs():
 
             for job in user_proname_filter_jobs:
                 check_proname_filter_job(tapis, user_token, job.uuid, job, admin_tapis)
+    if proname_refine_jobs.exists():
+        usernames = set(j.user.username for j in proname_refine_jobs)
+
+        for username in usernames:
+            tprint("Checking proname refine jobs for user " + username)
+            user_proname_refine_jobs = [j for j in proname_refine_jobs if j.user.username == username]
+
+            user_token = generate_user_token(username)
+            tapis = connect_to_tapis(username, user_token)
+
+            for job in user_proname_refine_jobs:
+                check_proname_refine_job(tapis, user_token, job.uuid, job, admin_tapis)
     # 1. Query active jobs
     jobs = (
         BasecallingJob.objects
