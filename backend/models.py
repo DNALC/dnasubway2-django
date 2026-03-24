@@ -354,9 +354,9 @@ class PronameFilterResult(models.Model):
     simplex_distribution = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
     duplex_distribution = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
     dual_distribution = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
-    simplex_reads = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
-    duplex_reads = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
-    dual_reads = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
+    simplex_reads = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
+    duplex_reads = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
+    dual_reads = models.FileField(upload_to="proname_filter_files/", blank=True, null=True)
 
 class PronameRefineJobDetail(models.Model):
     CHIMERA_DBS = [
