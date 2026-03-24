@@ -2175,10 +2175,10 @@ def _extract_max_frequency(document):
         return None
 
     lines = m2.group(0).splitlines()
-    if len(lines) < 2:
+    if len(lines) < 1:
         return None
 
-    line = lines[1]
+    line = next((s for s in lines if any(c.isdigit() for c in s)), None)
 
     # Strip decimals and non-digits
     cleaned = re.sub(r"\..*", "", line)
