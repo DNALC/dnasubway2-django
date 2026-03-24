@@ -386,6 +386,8 @@ class PronameRefineResult(models.Model):
     rep_seqs_fasta = models.FileField(upload_to="proname_refine_files/", blank=True, null=True)
     rep_table_tsv = models.FileField(upload_to="proname_refine_files/", blank=True, null=True)
     rooted_tree_qza = models.FileField(upload_to="proname_refine_files/", blank=True, null=True)
+    rep_seqs_qzv = models.FileField(upload_to="proname_refine_files/", blank=True, null=True)
+    trim_table_qzv = models.FileField(upload_to="proname_refine_files/", blank=True, null=True)
 
 class PronameTaxonomyJobDetail(models.Model):
     job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_taxonomy_detail")

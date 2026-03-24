@@ -1189,6 +1189,7 @@ def project_info(request):
     used_metadata_file_id = None
     max_rarefaction_depth = 100000
     trim_table_found = False
+    trim_table_found = False
     primary_found = False
     if project.project_type == "UB":
         project_metabarcoding_files = ProjectMetabarcodingFile.objects.filter(project=project).select_related('metabarcoding_file').order_by('metabarcoding_file__name')
@@ -1315,7 +1316,7 @@ def project_info(request):
                         trim_table_found = True
                     if result.stats_qzv:
                         results["Stats"] = result.stats_qzv.name
-                    if result.rep_seqs_qza:
+                    if result.rep_seqs_qzv:
                         results["Representative Sequences"] = result.rep_seqs_qzv.name
                 if results:
                     job_data["results"] = results
@@ -1583,16 +1584,22 @@ def project_info(request):
                 results = {}
                 if hasattr(job, "proname_refine_result"):
                     result = job.proname_refine_result
-                    if result.rep_seqs_qza:
-                        results["Representative Sequences (Archive)"] = result.rep_seqs_qza.name
-                    if result.trim_table_qza:
-                        results["Trim Table (Archive)"] = result.trim_table_qza.name
+                    if result.rep_seqs_qzv:
+                        results["Representative Sequences"] = result.rep_seqs_qzv.name
+                    if result.trim_table_qzv:
+                        results["Trim Table"] = result.trim_table_qzv.name
+                        if not trim_table_found or (job.primary and not primary_found):
+                            max_rarefaction_depth = get_max_rarefaction_depth(result.trim_table_qzv.name)
+                        trim_table_found = True
                     if result.rooted_tree_qza:
                         results["Rooted Tree (Archive)"] = result.rooted_tree_qza.name
                 if results:
                     job_data["results"] = results
 
                 proname_refine["jobs"].append(job_data)
+                if job.primary:
+                    primary_found = True
+            primary_found = False
 
     project_data = {
         'id': project.id,

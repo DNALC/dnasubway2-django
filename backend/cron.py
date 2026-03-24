@@ -890,6 +890,14 @@ def check_proname_refine_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
                 "match": "rep_table.qza",
                 "filename": "rep_table.qza",
             },
+            "rep_seqs_qzv": {
+                "match": "rep_seqs.qzv",
+                "filename": "rep_seqs.qzv",
+            },
+            "trim_table_qzv": {
+                "match": "rep_table.qzv",
+                "filename": "rep_table.qzv",
+            },
             "rooted_tree_qza": {
                 "match": "rooted_tree.qza",
                 "filename": "rooted_tree.qza",
