@@ -1422,6 +1422,13 @@ def project_info(request):
                 if used_dada2_job
                 else None
             )
+            if not used_dada2_job_detail:
+                used_dada2_job_detail = (
+                    PronameRefineJobDetail.objects.filter(job=used_dada2_job).first()
+                    if used_dada2_job
+                    else None
+                )
+
             used_metadata_file_id = (
                 getattr(used_dada2_job_detail.metadata_file, "id", None)
                 if used_dada2_job_detail and used_dada2_job_detail.metadata_file
