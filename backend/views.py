@@ -1480,6 +1480,7 @@ def project_info(request):
                 job_data = {
                     "id": job.id,
                     "status": job.status,
+                    "primary": job.primary,
                 }
 
                 # Proname Import parameters from PronameImportJobDetail
@@ -1522,6 +1523,7 @@ def project_info(request):
                 job_data = {
                     "id": job.id,
                     "status": job.status,
+                    "primary": job.primary,
                 }
 
                 # Proname Filter parameters from PronameFilterJobDetail
@@ -1563,6 +1565,7 @@ def project_info(request):
                 job_data = {
                     "id": job.id,
                     "status": job.status,
+                    "primary": job.primary,
                 }
 
                 # Proname Refine parameters from PronameRefineJobDetail
