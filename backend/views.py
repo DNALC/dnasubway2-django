@@ -6716,7 +6716,7 @@ def proname_filter(request):
     try:
         filtMaxLength = int(data.get("filtmaxlength", 5000))
         filtMinLength = int(data.get("filtminlength", 1))
-        filtMinQual = int(data.get("filtMinQual", 15))
+        filtMinQual = int(data.get("filtminqual", 15))
     except (ValueError, TypeError):
         return JsonResponse({'error': 'Filter parameters must be integers.'}, status=400)
 
