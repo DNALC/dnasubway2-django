@@ -587,7 +587,7 @@ def check_ancom_job(tapis, user_token, job_uuid, job_obj, admin_tapis):
                 tprint(f"Deleted /scratch/{user.username}/job-{job_uuid}/ from Tapis")
             except Exception as e:
                 tprint(f"Failed to delete job files for {job_uuid}: {e}")
-        if not all([
+        if not any([
             heatmap_qzv_archived,
             abundance_barplot_qzv_archived,
             ancom_qzv_archived,
