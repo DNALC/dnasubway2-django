@@ -17,7 +17,7 @@ import time
 import uuid
 import zipfile
 from tapipy.tapis import Tapis
-from .models import Job, DataFile, TrimJob, ConsensusJob, ConsensusData, BlastJob, BlastData, BlastResult, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, Project, ProjectDataFile, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, BlastCache, ProjectMetabarcodingFile
+from .models import Job, DataFile, TrimJob, ConsensusJob, ConsensusData, BlastJob, BlastData, BlastResult, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, Project, ProjectDataFile, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, BlastCache, ProjectMetabarcodingFile, PronameRefineJobDetail
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 tapis = Tapis(base_url='https://cyverse.tapis.io', username=settings.TAPIS_CYVERSE_USERNAME, password=settings.TAPIS_CYVERSE_PASSWORD)
@@ -2234,3 +2234,87 @@ def validate_metabarcoding_pairs(metabarcoding_files, read_type):
             raise ValueError(
                 f"Missing paired reads for samples: {', '.join(missing)}"
             )
+
+def find_best_medaka_model(fastq_path):
+    MEDAKA_MODEL_LIST = PronameRefineJobDetail.MEDAKA_MODEL_LIST
+    # Default selection
+    DEFAULT_MODEL = "r1041_e82_400bps_sup_v5.2.0"
+
+    # 1. Parse Metadata from FASTQ
+    metadata = {}
+    try:
+        open_func = gzip.open if str(fastq_path).endswith('.gz') else open
+        with open_func(fastq_path, 'rt') as f:
+            header = f.readline().strip()
+            # Create a dict of all key=value pairs in the header
+            pairs = re.findall(r'(\S+)=(\S+)', header)
+            metadata = dict(pairs)
+    except Exception:
+        return DEFAULT_MODEL
+
+    if not metadata:
+        return DEFAULT_MODEL
+
+    # 2. Extract key features for matching
+    # Flowcell example: 'flow_cell_id=r1041_e82_400bps_hac'
+    flow_cell = metadata.get('flow_cell_id', '').lower()
+    # Model ID example: 'basecall_model_version_id=dna_r10.4.1_e8.2_400bps_sup@v4.1.0'
+    model_id = metadata.get('basecall_model_version_id', '').lower()
+
+    # Identify Pore (r941, r1041, r103, etc.)
+    pore_match = re.search(r'r\d+', flow_cell)
+    if not pore_match:
+        pore_match = re.search(r'r\d+', model_id)
+
+    pore = pore_match.group(0) if pore_match else ""
+
+    # Identify Variant (fast, hac, sup)
+    variant = "sup" if "sup" in model_id else "hac" if "hac" in model_id else "fast"
+
+    # Identify Version (e.g., v4.1.0 or g632)
+    # We look for 'v' followed by digits or 'g' followed by digits
+    version_match = re.search(r'[vg]\d+[\d\.]*.*', model_id)
+    version = version_match.group(0) if version_match else ""
+
+    # 3. Filtering Logic
+    # Start with all models and narrow them down
+    candidates = [m for m in MEDAKA_MODEL_LIST if pore in m]
+    candidates = [m for m in candidates if variant in m]
+
+    # Try to find an exact version match
+    final_candidates = [m for m in candidates if version in m]
+
+    # If version match fails, return the most recent (last) match for that pore/variant
+    if not final_candidates:
+        if candidates:
+            return candidates[-1] # Fallback to latest version available
+        return DEFAULT_MODEL
+
+    # Return the first match (or the most specific one)
+    final_candidates.sort(key=len)
+    return final_candidates[0]
+
+def is_gzip(file_obj):
+    """
+    Checks the first two bytes of a file for the Gzip magic number (0x1f 0x8b).
+    """
+    try:
+        # Peek at the first 2 bytes
+        pos = file_obj.tell()
+        header = file_obj.read(2)
+        file_obj.seek(pos) # Reset pointer so we don't skip data when saving
+        return header == b'\x1f\x8b'
+    except Exception:
+        return False
+
+def is_fastq_text(file_obj):
+    """
+    Checks if the file starts with '@', the standard FASTQ identifier.
+    """
+    try:
+        pos = file_obj.tell()
+        first_char = file_obj.read(1)
+        file_obj.seek(pos)
+        return first_char == b'@'
+    except Exception:
+        return False
