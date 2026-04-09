@@ -27,7 +27,7 @@ import time
 import uuid
 #from django.shortcuts import render
 from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail, Dada2Result, RarefactionJobDetail, CoreMetricsJobDetail, CoreMetricsResult, GneissJobDetail, AncomJobDetail, PronameImportJobDetail, PronameImportResult, PronameFilterJobDetail, PronameFilterResult, PronameRefineJobDetail, PronameRefineResult, PronameTaxonomyJobDetail
-from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file, extract_qiime2_metadata_sample_ids, get_max_rarefaction_depth, get_user_job_status, stop_job, validate_metabarcoding_pairs
+from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file, extract_qiime2_metadata_sample_ids, get_max_rarefaction_depth, get_user_job_status, stop_job, validate_metabarcoding_pairs, find_best_medaka_model, is_gzip, is_fastq_text
 import gzip
 import shutil
 from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task, submit_rarefaction_job_task, submit_coremetrics_job_task, submit_gneiss_job_task, submit_ancom_job_task, submit_proname_import_job_task, submit_proname_filter_job_task, submit_proname_refine_job_task # Celery task
@@ -2948,133 +2948,145 @@ def create_temp_directory():
     return temp_dir
 
 def upload_nanopore_directory(request):
-    parsed_data = parse_user_project_data(request)
-    if 'error' in parsed_data:
-        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+    """
+    Handles directory uploads.
+    Expects 'file_data' as a list of files and 'paths' as a JSON array of relative paths.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
 
-    data = parsed_data['data']
-    project = parsed_data['project']
-    files = data.get('files')
-    if not files:
-        return JsonResponse({'error': 'files is required'}, status=400)
+    pid = request.POST.get('pid')
+    project = get_project(pid)
+    if not project or project.user != request.user:
+        return JsonResponse({'error': 'Unauthorized or Project not found'}, status=403)
 
-    temp_dir = create_temp_directory()
-    warnings = []
-    base_file_path = ""
+    uploaded_files = request.FILES.getlist('file_data')
+    paths = json.loads(request.POST.get('paths', '[]'))
+    if not uploaded_files:
+        return JsonResponse({'error': 'No files provided'}, status=400)
+    folders = {}
+    for i, file_obj in enumerate(uploaded_files):
+        filename = file_obj.name.lower()
 
-    # Organize files by barcode folder
-    for relative_path, base64_content in files.items():
-        # Decode base64 content to bytes
-        try:
-            array_buffer = base64.b64decode(base64_content)
-            with gzip.open(io.BytesIO(array_buffer), 'rb') as test_gzip:
-                test_gzip.read(1)  # Read a small part to confirm it's gzipped
-        except (base64.binascii.Error, OSError) as e:
-            warnings.append(f"Failed to decode or validate gzip for file {relative_path}: {e}")
+        if not (filename.endswith('.fastq.gz') or filename.endswith('.fq.gz') or filename.endswith('.fq') or filename.endswith('.fastq')):
             continue
 
-        stripped_filepath = os.path.join(*relative_path.split(os.path.sep)[1:])
-        base_file_path = relative_path.split(os.path.sep)[0]
-        full_path = os.path.join(temp_dir, stripped_filepath)
+        path_parts = paths[i].split(os.path.sep)
+
+        if len(path_parts) > 2:
+            folder_name = path_parts[1]
+        elif len(path_parts) > 1:
+            folder_name = path_parts[0]
+        else:
+            folder_name = "unclassified"
+
+        if folder_name not in folders:
+            folders[folder_name] = []
+        folders[folder_name].append(file_obj)
+
+    warnings = []
+    ids_added = []
+
+    for folder_name, files in folders.items():
+        if ProjectNanoporeSequence.objects.filter(project=project, nanopore_sequence__name=folder_name).exists():
+            warnings.append(f"Sequence '{folder_name}' already exists.")
+            continue
+        valid_files_to_process = []
+
+        for f in files:
+            is_gz = is_gzip(f)
+            if is_gz or is_fastq_text(f):
+                valid_files_to_process.append((f, is_gz))
+            else:
+                warnings.append(f"File {f.name} skipped: Unsupported format.")
+
+        if not valid_files_to_process:
+            continue
+
+        nanopore_sequence = NanoporeSequence.objects.create(name=folder_name)
+        storage_path = f"fastq_files/{nanopore_sequence.id}.fastq.gz"
+        full_path = os.path.join(settings.BASE_DIR, storage_path)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
-        with open(full_path, 'wb') as file:
-            file.write(array_buffer)
+        with open(full_path, 'wb') as destination:
+            for f, is_gz in valid_files_to_process:
+                if is_gz:
+                    for chunk in f.chunks():
+                        destination.write(chunk)
+                else:
+                    with gzip.GzipFile(fileobj=destination, mode='wb', compresslevel=6) as gz_wrapper:
+                        for chunk in f.chunks():
+                            gz_wrapper.write(chunk)
 
-    json_resp = upload_fastq_directory(temp_dir, project, base_file_path)
-
-    nanopore_sequence_ids = json_resp['nanopore_sequence_ids']
-    # Define where to save the uploaded files
-    base_dir = "fastq_files"
-
-    for nanopore_sequence_id in nanopore_sequence_ids:
-        nanopore_sequence = NanoporeSequence.objects.get(id=nanopore_sequence_id)
-
-        concatenated_file_path =  f"{base_dir}/{nanopore_sequence_id}.fastq.gz"
-
-        copy_file_to_storage(nanopore_sequence.file, concatenated_file_path)
-        nanopore_sequence.file.name = concatenated_file_path
+        nanopore_sequence.file.name = storage_path
         nanopore_sequence.save()
-
-    shutil.rmtree(temp_dir)
-
-    # Return a response indicating the process result
-    if json_resp['sequences_added']:
-        metadata_files = MetadataFile.objects.filter(
-            project_links__project=project
+        ProjectNanoporeSequence.objects.create(
+            project=project,
+            nanopore_sequence=nanopore_sequence
         )
+        ids_added.append(nanopore_sequence.id)
 
-        metadata_files.update(validated=False)
-        return JsonResponse({'success': 'Sequences processed and added successfully.', 'warnings': warnings + json_resp['warnings']})
-    else:
-        return JsonResponse({"status": "error", 'message': "\n" + "\n".join(json_resp['warnings'])})
+    MetadataFile.objects.filter(project_links__project=project).update(validated=False)
+    if len(ids_added) == 0:
+        return JsonResponse({'error': 'No valid files to add'}, status=400)
+
+    return JsonResponse({
+        'success': f'Processed {len(ids_added)} nanopore sequences.',
+        'ids': ids_added,
+        'warnings': warnings
+    })
 
 def upload_nanopore_files(request):
-    parsed_data = parse_user_project_data(request)
-    if 'error' in parsed_data:
-        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+    """
+    Handles specific folder upload where user provides a 'folder' name.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    pid = request.POST.get('pid')
+    folder_name = request.POST.get('folder')
+    uploaded_files = request.FILES.getlist('file_data')
 
-    data = parsed_data['data']
-    project = parsed_data['project']
-    folder = data.get('folder')
-    files = data.get('files')
+    project = get_project(pid)
+    if not project or project.user != request.user:
+        return JsonResponse({'error': 'Unauthorized'}, status=403)
 
-    if not files or not folder:
-        return JsonResponse({'error': 'files and folder are required'}, status=400)
+    if ProjectNanoporeSequence.objects.filter(project=project, nanopore_sequence__name=folder_name).exists():
+        return JsonResponse({'error': f"Sequence '{folder_name}' exists."}, status=400)
 
-    existing_pns = ProjectNanoporeSequence.objects.filter(
-        project=project, nanopore_sequence__name=folder
-    ).exists()
+    valid_files_to_process = []
+    for f in uploaded_files:
+        filename = f.name.lower()
+        is_gz = is_gzip(f)
 
-    if existing_pns:
-        return JsonResponse({'error': f"NanoporeSequence '{folder}' already exists for this project."}, status=400)
+        if is_gz and (filename.endswith('.fastq.gz') or filename.endswith('.fq.gz')):
+            valid_files_to_process.append((f, True))
+        elif not is_gz and filename.endswith(('.fastq', '.fq')) and is_fastq_text(f):
+            valid_files_to_process.append((f, False))
 
-    temp_dir = create_temp_directory()
-    warnings = []
+    if not valid_files_to_process:
+        return JsonResponse({'error': 'No valid fastq.gz files detected.'}, status=400)
 
-    # Organize files by barcode folder
-    for relative_path, base64_content in files.items():
-        # Decode base64 content to bytes
-        try:
-            array_buffer = base64.b64decode(base64_content)
-            with gzip.open(io.BytesIO(array_buffer), 'rb') as test_gzip:
-                test_gzip.read(1)  # Read a small part to confirm it's gzipped
-        except (base64.binascii.Error, OSError) as e:
-            warnings.append(f"Failed to decode or validate gzip for file {relative_path}: {e}")
-            continue
+    nanopore_sequence = NanoporeSequence.objects.create(name=folder_name)
+    storage_path = f"fastq_files/{nanopore_sequence.id}.fastq.gz"
+    full_path = os.path.join(settings.BASE_DIR, storage_path)
+    os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
-        full_path = os.path.join(temp_dir, relative_path)
+    with open(full_path, 'wb') as destination:
+        for f, is_gzipped in valid_files_to_process:
+            if is_gzipped:
+                for chunk in f.chunks():
+                    destination.write(chunk)
+            else:
+                with gzip.GzipFile(fileobj=destination, mode='wb', compresslevel=6) as gz_wrapper:
+                    for chunk in f.chunks():
+                        gz_wrapper.write(chunk)
 
-        with open(full_path, 'wb') as file:
-            file.write(array_buffer)
-
-    # Create a NanoporeSequence if it doesn't exist
-    nanopore_sequence = NanoporeSequence.objects.create(name=folder)
-    # Link NanoporeSequence to the project
-    ProjectNanoporeSequence.objects.create(
-        project=project,
-        nanopore_sequence=nanopore_sequence
-    )
-    fastq_files = [f for f in os.listdir(temp_dir) if f.endswith('.fastq.gz') or f.endswith(".fq.gz")]
-    base_dir = "fastq_files"
-    concatenated_file_path =  f"{base_dir}/{nanopore_sequence.id}.fastq.gz"
-    if not os.path.exists(concatenated_file_path):
-        with gzip.open(concatenated_file_path, 'wb') as f_out:
-            for fastq_file in fastq_files:
-                file_path = os.path.join(temp_dir, fastq_file)
-                with gzip.open(file_path, 'rb') as f_in:
-                    shutil.copyfileobj(f_in, f_out)
-    nanopore_sequence.file.name = concatenated_file_path
+    nanopore_sequence.file.name = storage_path
     nanopore_sequence.save()
-    print(temp_dir)
-    #shutil.rmtree(temp_dir)
-    # Return a response indicating the process result
-    metadata_files = MetadataFile.objects.filter(
-        project_links__project=project
-    )
+    ProjectNanoporeSequence.objects.create(project=project, nanopore_sequence=nanopore_sequence)
+    MetadataFile.objects.filter(project_links__project=project).update(validated=False)
 
-    metadata_files.update(validated=False)
-    return JsonResponse({'success': 'Sequences processed and added successfully.'})
+    return JsonResponse({'success': 'Files uploaded.'})
 
 def rename_nanopore_file(request):
     if request.method != 'POST':
@@ -6693,7 +6705,7 @@ def proname_import(request):
         .select_related('nanopore_sequence')
     )
     if not nanopore_sequences.exists():
-        return JsonResponse({'error': 'No metabarcoding files found for this project.'}, status=400)
+        return JsonResponse({'error': 'No nanopore sequences found for this project.'}, status=400)
     job = placeholder_tapis_job(user, settings.QIIME2_PRONAME_IMPORT_APP_ID)
     job.project = project
     job.save()
@@ -6809,6 +6821,18 @@ def proname_refine(request):
     clusterMethod = data.get("clusteringmethod")
     medakaModel = data.get("medakamodel")
     file_id = data.get('metadata_file_id')
+    nanopore_sequences = (
+        ProjectNanoporeSequence.objects
+        .filter(project=project)
+        .exclude(nanopore_sequence__source='proname_import')
+        .select_related('nanopore_sequence')
+    )
+    first_project_seq = nanopore_sequences.first()
+
+    if not first_project_seq:
+        return JsonResponse({'error': 'No nanopore sequences found for this project.'}, status=400)
+    fastq_file_path = first_project_seq.nanopore_sequence.file.path
+    medakaModel = find_best_medaka_model(fastq_file_path)
     try:
         raw_cluster_id = data.get("clusterid", 0.99)
         clusterId = round(float(raw_cluster_id), 2)
