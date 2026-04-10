@@ -370,7 +370,58 @@ class PronameRefineJobDetail(models.Model):
         ('vsearch', 'vsearch'),
         ('mmseqs2', 'mmseqs2')
     ]
-    MEDAKA_MODEL_LIST = ['r103_fast_g507', 'r103_fast_snp_g507', 'r103_fast_variant_g507', 'r103_hac_g507', 'r103_hac_snp_g507', 'r103_hac_variant_g507', 'r103_sup_g507', 'r103_sup_snp_g507', 'r103_sup_variant_g507', 'r1041_e82_260bps_fast_g632', 'r1041_e82_260bps_fast_variant_g632', 'r1041_e82_260bps_hac_g632', 'r1041_e82_260bps_hac_v4.0.0', 'r1041_e82_260bps_hac_v4.1.0', 'r1041_e82_260bps_hac_variant_g632', 'r1041_e82_260bps_hac_variant_v4.1.0', 'r1041_e82_260bps_joint_apk_ulk_v5.0.0', 'r1041_e82_260bps_sup_g632', 'r1041_e82_260bps_sup_v4.0.0', 'r1041_e82_260bps_sup_v4.1.0', 'r1041_e82_260bps_sup_variant_g632', 'r1041_e82_260bps_sup_variant_v4.1.0', 'r1041_e82_400bps_bacterial_methylation', 'r1041_e82_400bps_fast_g615', 'r1041_e82_400bps_fast_g632', 'r1041_e82_400bps_fast_variant_g615', 'r1041_e82_400bps_fast_variant_g632', 'r1041_e82_400bps_hac_g615', 'r1041_e82_400bps_hac_g632', 'r1041_e82_400bps_hac_v4.0.0', 'r1041_e82_400bps_hac_v4.1.0', 'r1041_e82_400bps_hac_v4.2.0', 'r1041_e82_400bps_hac_v4.3.0', 'r1041_e82_400bps_hac_v5.0.0', 'r1041_e82_400bps_hac_v5.0.0_rl_lstm384_dwells', 'r1041_e82_400bps_hac_v5.0.0_rl_lstm384_no_dwells', 'r1041_e82_400bps_hac_v5.2.0', 'r1041_e82_400bps_hac_v5.2.0_rl_lstm384_dwells', 'r1041_e82_400bps_hac_v5.2.0_rl_lstm384_no_dwells', 'r1041_e82_400bps_hac_variant_g615', 'r1041_e82_400bps_hac_variant_g632', 'r1041_e82_400bps_hac_variant_v4.1.0', 'r1041_e82_400bps_hac_variant_v4.2.0', 'r1041_e82_400bps_hac_variant_v4.3.0', 'r1041_e82_400bps_hac_variant_v5.0.0', 'r1041_e82_400bps_sup_g615', 'r1041_e82_400bps_sup_v4.0.0', 'r1041_e82_400bps_sup_v4.1.0', 'r1041_e82_400bps_sup_v4.2.0', 'r1041_e82_400bps_sup_v4.3.0', 'r1041_e82_400bps_sup_v5.0.0', 'r1041_e82_400bps_sup_v5.0.0_rl_lstm384_dwells', 'r1041_e82_400bps_sup_v5.0.0_rl_lstm384_no_dwells', 'r1041_e82_400bps_sup_v5.2.0', 'r1041_e82_400bps_sup_v5.2.0_rl_lstm384_dwells', 'r1041_e82_400bps_sup_v5.2.0_rl_lstm384_no_dwells', 'r1041_e82_400bps_sup_variant_g615', 'r1041_e82_400bps_sup_variant_v4.1.0', 'r1041_e82_400bps_sup_variant_v4.2.0', 'r1041_e82_400bps_sup_variant_v4.3.0', 'r1041_e82_400bps_sup_variant_v5.0.0', 'r104_e81_fast_g5015', 'r104_e81_fast_variant_g5015', 'r104_e81_hac_g5015', 'r104_e81_hac_variant_g5015', 'r104_e81_sup_g5015', 'r104_e81_sup_g610', 'r104_e81_sup_variant_g610', 'r941_e81_fast_g514', 'r941_e81_fast_variant_g514', 'r941_e81_hac_g514', 'r941_e81_hac_variant_g514', 'r941_e81_sup_g514', 'r941_e81_sup_variant_g514', 'r941_min_fast_g507', 'r941_min_fast_snp_g507', 'r941_min_fast_variant_g507', 'r941_min_hac_g507', 'r941_min_hac_snp_g507', 'r941_min_hac_variant_g507', 'r941_min_sup_g507', 'r941_min_sup_snp_g507', 'r941_min_sup_variant_g507', 'r941_prom_fast_g507', 'r941_prom_fast_snp_g507', 'r941_prom_fast_variant_g507', 'r941_prom_hac_g507', 'r941_prom_hac_snp_g507', 'r941_prom_hac_variant_g507', 'r941_prom_sup_g507', 'r941_prom_sup_snp_g507', 'r941_prom_sup_variant_g507', 'r941_sup_plant_g610', 'r941_sup_plant_variant_g610']
+    MEDAKA_MODEL_LIST = [
+        # --- R9.4.1 Series ---
+        'r941_e81_fast_variant_g514', 'r941_e81_fast_g514',
+        'r941_e81_hac_variant_g514', 'r941_e81_hac_g514',
+        'r941_e81_sup_variant_g514', 'r941_e81_sup_g514',
+        'r941_min_fast_snp_g507', 'r941_min_fast_variant_g507', 'r941_min_fast_g507',
+        'r941_min_hac_snp_g507', 'r941_min_hac_variant_g507', 'r941_min_hac_g507',
+        'r941_min_sup_snp_g507', 'r941_min_sup_variant_g507', 'r941_min_sup_g507',
+        'r941_prom_fast_snp_g507', 'r941_prom_fast_variant_g507', 'r941_prom_fast_g507',
+        'r941_prom_hac_snp_g507', 'r941_prom_hac_variant_g507', 'r941_prom_hac_g507',
+        'r941_prom_sup_snp_g507', 'r941_prom_sup_variant_g507', 'r941_prom_sup_g507',
+        'r941_sup_plant_variant_g610', 'r941_sup_plant_g610',
+
+        # --- R10.3 Series ---
+        'r103_fast_snp_g507', 'r103_fast_variant_g507', 'r103_fast_g507',
+        'r103_hac_snp_g507', 'r103_hac_variant_g507', 'r103_hac_g507',
+        'r103_sup_snp_g507', 'r103_sup_variant_g507', 'r103_sup_g507',
+
+        # --- R10.4 (e8.1) Series ---
+        'r104_e81_fast_variant_g5015', 'r104_e81_fast_g5015',
+        'r104_e81_hac_variant_g5015', 'r104_e81_hac_g5015',
+        'r104_e81_sup_variant_g610', 'r104_e81_sup_g5015', 'r104_e81_sup_g610',
+
+        # --- R10.4.1 (260bps) Series ---
+        'r1041_e82_260bps_fast_variant_g632', 'r1041_e82_260bps_fast_g632',
+        'r1041_e82_260bps_hac_variant_g632', 'r1041_e82_260bps_hac_variant_v4.1.0',
+        'r1041_e82_260bps_hac_g632', 'r1041_e82_260bps_hac_v4.0.0', 'r1041_e82_260bps_hac_v4.1.0',
+        'r1041_e82_260bps_sup_variant_g632', 'r1041_e82_260bps_sup_variant_v4.1.0',
+        'r1041_e82_260bps_sup_g632', 'r1041_e82_260bps_sup_v4.0.0', 'r1041_e82_260bps_sup_v4.1.0',
+        'r1041_e82_260bps_joint_apk_ulk_v5.0.0',
+
+        # --- R10.4.1 (400bps) Series ---
+        'r1041_e82_400bps_bacterial_methylation',
+        'r1041_e82_400bps_fast_variant_g615', 'r1041_e82_400bps_fast_variant_g632',
+        'r1041_e82_400bps_fast_g615', 'r1041_e82_400bps_fast_g632',
+        'r1041_e82_400bps_hac_variant_g615', 'r1041_e82_400bps_hac_variant_g632',
+        'r1041_e82_400bps_hac_variant_v4.1.0', 'r1041_e82_400bps_hac_variant_v4.2.0',
+        'r1041_e82_400bps_hac_variant_v4.3.0', 'r1041_e82_400bps_hac_variant_v5.0.0',
+        'r1041_e82_400bps_hac_v4.0.0', 'r1041_e82_400bps_hac_v4.1.0', 'r1041_e82_400bps_hac_v4.2.0',
+        'r1041_e82_400bps_hac_v4.3.0', 'r1041_e82_400bps_hac_v5.0.0',
+        'r1041_e82_400bps_hac_v5.0.0_rl_lstm384_dwells', 'r1041_e82_400bps_hac_v5.0.0_rl_lstm384_no_dwells',
+        'r1041_e82_400bps_hac_v5.2.0_rl_lstm384_dwells', 'r1041_e82_400bps_hac_v5.2.0_rl_lstm384_no_dwells',
+        'r1041_e82_400bps_hac_g615', 'r1041_e82_400bps_hac_g632', 'r1041_e82_400bps_hac_v5.2.0',
+        'r1041_e82_400bps_sup_variant_g615', 'r1041_e82_400bps_sup_variant_v4.1.0',
+        'r1041_e82_400bps_sup_variant_v4.2.0', 'r1041_e82_400bps_sup_variant_v4.3.0',
+        'r1041_e82_400bps_sup_variant_v5.0.0',
+        'r1041_e82_400bps_sup_v4.0.0', 'r1041_e82_400bps_sup_v4.1.0', 'r1041_e82_400bps_sup_v4.2.0',
+        'r1041_e82_400bps_sup_v4.3.0', 'r1041_e82_400bps_sup_v5.0.0',
+        'r1041_e82_400bps_sup_v5.0.0_rl_lstm384_dwells', 'r1041_e82_400bps_sup_v5.0.0_rl_lstm384_no_dwells',
+        'r1041_e82_400bps_sup_v5.2.0_rl_lstm384_dwells', 'r1041_e82_400bps_sup_v5.2.0_rl_lstm384_no_dwells',
+        'r1041_e82_400bps_sup_g615', 'r1041_e82_400bps_sup_v5.2.0'
+    ]
     MEDAKA_MODELS = [(m, m) for m in MEDAKA_MODEL_LIST]
     job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_refine_detail")
     chimera_db = models.CharField(max_length=32, choices=CHIMERA_DBS, default='greengenes2')
@@ -416,6 +467,7 @@ class NanoporeSequence(models.Model):
 class UserNanoporeSequence(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     nanopore_sequence = models.ForeignKey(NanoporeSequence, on_delete=models.CASCADE)
+    is_public = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ('user', 'nanopore_sequence')

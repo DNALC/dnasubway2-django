@@ -3797,7 +3797,88 @@ def safe_annotate(submission, seq, primer, organism, trans_table):
     except RuntimeError:
         return False
 
-# Helper function
+# Helper functions
+
+def specimen_info(specimen):
+    if not specimen:
+        return {}
+
+    return {
+        'codon': specimen.codon,
+        'institution_storing': specimen.institution_storing,
+        'identifier_name': specimen.identifier_name,
+        'identifier_email': specimen.identifier_email,
+        'genus': specimen.genus,
+        'species': specimen.species,
+        'date_collected': specimen.date_collected.strftime('%Y-%m-%d') if specimen.date_collected else None,
+        'country': specimen.country,
+        'state_province': specimen.state_province,
+        'city': specimen.city,
+        'habitat': specimen.habitat,
+        'exact_site': specimen.exact_site,
+        'isolation_source': specimen.isolation_source,
+        'sample_collected_from_host': specimen.sample_collected_from_host,
+        'host_organism_name': specimen.host_organism_name,
+        'latitude': specimen.latitude,
+        'longitude': specimen.longitude,
+        'altitude': specimen.altitude,
+        'notes': specimen.notes,
+        'sex': specimen.sex,
+        'reproduction': specimen.reproduction,
+        'life_stage': specimen.life_stage,
+        'primer_used': specimen.primer_used,
+    }
+
+def datafile_info(datafile, user_elevated_access, submission):
+    specimen = getattr(datafile, 'specimen', None)
+    is_valid_export = not validate_consensus_export(datafile)
+
+    return {
+        'datafile_id': datafile.id,
+        'name': datafile.name,
+        'username': datafile.user.username,
+        'created': datafile.created,
+        'updated': datafile.updated,
+        'is_public': datafile.is_public,
+        'specimen_id': (
+            f"DNAS2-{specimen.id:X}-{base10_to_base36(datafile.id)}"
+            if datafile.exported and specimen
+            else None
+        ),
+        'can_export': user_elevated_access and is_valid_export and not datafile.exported,
+        'rbcL_primer_valid': (
+            user_elevated_access
+            and is_valid_export
+            and safe_annotate(submission, datafile.reads, "RBCL", "sample", 1)
+        ),
+        'invertebrate_primer_valid': (
+            user_elevated_access
+            and is_valid_export
+            and safe_annotate(submission, datafile.reads, "COI", "sample", 5)
+        ),
+        'vertebrate_primer_valid': (
+            user_elevated_access
+            and is_valid_export
+            and safe_annotate(submission, datafile.reads, "COI", "sample", 2)
+        ),
+        'echinoderm_primer_valid': (
+            user_elevated_access
+            and is_valid_export
+            and safe_annotate(submission, datafile.reads, "COI", "sample", 9)
+        ),
+        'source': datafile.source,
+        'associated_abi': datafile.associated_abi.url if datafile.associated_abi else None,
+        'authors': [
+            {
+                'first_name': author.first_name,
+                'last_name': author.last_name,
+                'affiliation': author.affiliation
+            }
+            for author in datafile.authors.all()
+        ],
+        'specimen': specimen_info(specimen),
+    }
+
 def get_filtered_user_datafiles(request, filter_dict, output_name):
     if request.method == 'GET':
         # Get user_id from query parameters
@@ -3814,80 +3895,14 @@ def get_filtered_user_datafiles(request, filter_dict, output_name):
             return JsonResponse({'error': 'User not found'}, status=404)
 
         user_elevated_access = user and hasattr(user, 'userprofile') and user.userprofile.elevated_access
-        if user_elevated_access:
-            submission = GenbankSubmission()
+        submission = GenbankSubmission() if user_elevated_access else None
 
         # Get all DataFiles for the given user filtered by the provided filter_dict
         filtered_datafiles = DataFile.objects.filter(user=user, **filter_dict).order_by('name')
         data = [
-            {
-                'datafile_id': datafile.id,
-                'name': datafile.name,
-                'username': datafile.user.username,
-                'created': datafile.created,
-                'updated': datafile.updated,
-                'is_public': datafile.is_public,
-                'specimen_id': (
-                    f"DNAS2-{datafile.specimen.id:X}-{base10_to_base36(datafile.id)}"
-                    if datafile.exported and datafile.specimen
-                    else None
-                ),
-                'can_export': user_elevated_access and not validate_consensus_export(datafile) and not datafile.exported,
-                'rbcL_primer_valid': (
-                    user_elevated_access
-                    and not validate_consensus_export(datafile)
-                    and safe_annotate(submission, datafile.reads, "RBCL", "sample", 1)
-                ),
-                'invertebrate_primer_valid': (
-                    user_elevated_access
-                    and not validate_consensus_export(datafile)
-                    and safe_annotate(submission, datafile.reads, "COI", "sample", 5)
-                ),
-                'vertebrate_primer_valid': (
-                    user_elevated_access
-                    and not validate_consensus_export(datafile)
-                    and safe_annotate(submission, datafile.reads, "COI", "sample", 2)
-                ),
-                'echinoderm_primer_valid': (
-                    user_elevated_access
-                    and not validate_consensus_export(datafile)
-                    and safe_annotate(submission, datafile.reads, "COI", "sample", 9)
-                ),
-                'source': datafile.source,
-                'associated_abi': datafile.associated_abi.url if datafile.associated_abi else None,
-                'authors': [
-                    {'first_name': author.first_name, 'last_name': author.last_name, 'affiliation': author.affiliation}
-                    for author in datafile.authors.all()
-                ],
-                'specimen': {
-                    'codon': datafile.specimen.codon if hasattr(datafile, 'specimen') and datafile.specimen.codon else None,
-                    'institution_storing': datafile.specimen.institution_storing if hasattr(datafile, 'specimen') and datafile.specimen.institution_storing else None,
-                    'identifier_name': datafile.specimen.identifier_name if hasattr(datafile, 'specimen') and datafile.specimen.identifier_name else None,
-                    'identifier_email': datafile.specimen.identifier_email if hasattr(datafile, 'specimen') and datafile.specimen.identifier_email else None,
-                    'genus': datafile.specimen.genus if hasattr(datafile, 'specimen') and datafile.specimen.genus else None,
-                    'species': datafile.specimen.species if hasattr(datafile, 'specimen') and datafile.specimen.species else None,
-                    'date_collected': datafile.specimen.date_collected.strftime('%Y-%m-%d') if hasattr(datafile, 'specimen') and datafile.specimen.date_collected else None,
-                    'country': datafile.specimen.country if hasattr(datafile, 'specimen') and datafile.specimen.country else None,
-                    'state_province': datafile.specimen.state_province if hasattr(datafile, 'specimen') and datafile.specimen.state_province else None,
-                    'city': datafile.specimen.city if hasattr(datafile, 'specimen') and datafile.specimen.city else None,
-                    'habitat': datafile.specimen.habitat if hasattr(datafile, 'specimen') and datafile.specimen.habitat else None,
-                    'exact_site': datafile.specimen.exact_site if hasattr(datafile, 'specimen') and datafile.specimen.exact_site else None,
-                    'isolation_source': datafile.specimen.isolation_source if hasattr(datafile, 'specimen') and datafile.specimen.isolation_source else None,
-                    'sample_collected_from_host': datafile.specimen.sample_collected_from_host if hasattr(datafile, 'specimen') and datafile.specimen.sample_collected_from_host else None,
-                    'host_organism_name': datafile.specimen.host_organism_name if hasattr(datafile, 'specimen') and datafile.specimen.host_organism_name else None,
-                    'latitude': datafile.specimen.latitude if hasattr(datafile, 'specimen') and datafile.specimen.latitude else None,
-                    'longitude': datafile.specimen.longitude if hasattr(datafile, 'specimen') and datafile.specimen.longitude else None,
-                    'altitude': datafile.specimen.altitude if hasattr(datafile, 'specimen') and datafile.specimen.altitude else None,
-                    'notes': datafile.specimen.notes if hasattr(datafile, 'specimen') and datafile.specimen.notes else None,
-                    'sex': datafile.specimen.sex if hasattr(datafile, 'specimen') and datafile.specimen.sex else None,
-                    'reproduction': datafile.specimen.reproduction if hasattr(datafile, 'specimen') and datafile.specimen.reproduction else None,
-                    'life_stage': datafile.specimen.life_stage if hasattr(datafile, 'specimen') and datafile.specimen.life_stage else None,
-                    'primer_used': datafile.specimen.primer_used if hasattr(datafile, 'specimen') and datafile.specimen.primer_used else None,
-                }
-            }
+            datafile_info(datafile, user_elevated_access, submission)
             for datafile in filtered_datafiles
         ]
-
         return JsonResponse({output_name: data}, safe=False)
 
     return JsonResponse({'error': 'Invalid request method'}, status=400)
@@ -5041,7 +5056,20 @@ def list_folders_with_connections(request):
 
     if not request.user or not request.user.is_authenticated:
         return JsonResponse({'error': 'Authentication required'}, status=401)
-    user = request.user
+
+    user_elevated_access = hasattr(request.user, 'userprofile') and request.user.userprofile.elevated_access
+    submission = GenbankSubmission() if user_elevated_access else None
+
+    user_id = request.GET.get('user_id')
+    if user_id:
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return JsonResponse({'error': 'User not found'}, status=404)
+    else:
+        user = request.user
+
+    is_self = user == request.user
 
     data = {}
 
@@ -5053,11 +5081,13 @@ def list_folders_with_connections(request):
         SangerSequenceFolder.objects.filter(datafolder__user=user)
         .values_list('datafile_id', flat=True)
     )
-    sanger_in_repo = DataFile.objects.filter(in_sequence_repository=True, user=user)
+    sanger_in_repo = DataFile.objects.filter(in_sequence_repository=True, user=user).order_by('name')
+    if not is_self:
+        sanger_in_repo.filter(is_public=True)
     for s in sanger_in_repo:
         if s.id not in linked_sanger_ids:
             data[""].append({
-                "name": s.name,
+                **datafile_info(s, user_elevated_access, submission),
                 "id": s.id,
                 "type": "sanger"
             })
@@ -5067,7 +5097,9 @@ def list_folders_with_connections(request):
         NanoporeSequenceFolder.objects.filter(datafolder__user=user)
         .values_list('usernanoporesequence__id', flat=True)
     )
-    all_user_nanopores = UserNanoporeSequence.objects.filter(user=user)
+    all_user_nanopores = UserNanoporeSequence.objects.filter(user=user).order_by('nanopore_sequence__name')
+    if not is_self:
+        all_user_nanopores = all_user_nanopores.filter(is_public=True)
     for un in all_user_nanopores:
         if un.id not in linked_nano_ids:
             data[""].append({
@@ -5077,22 +5109,28 @@ def list_folders_with_connections(request):
             })
 
     # 2. Add actual folders and their items
-    folders = DataFolder.objects.filter(user=user)
+    folders = DataFolder.objects.filter(user=user).order_by('name')
     for folder in folders:
         folder_name = folder.name
         data[folder_name] = []
 
         # Sanger connections
-        sanger_connections = SangerSequenceFolder.objects.filter(datafolder=folder)
+        sanger_connections = SangerSequenceFolder.objects.filter(datafolder=folder).order_by('datafile__name')
+        if not is_self:
+            sanger_connections = sanger_connections.filter(datafile__is_public=True)
         for sf in sanger_connections:
             data[folder_name].append({
-                "name": sf.datafile.name,
+                **datafile_info(sf.datafile, user_elevated_access, submission),
                 "id": sf.datafile.id,
                 "type": "sanger"
             })
 
         # Nanopore connections
-        nano_connections = NanoporeSequenceFolder.objects.filter(datafolder=folder)
+        nano_connections = NanoporeSequenceFolder.objects.filter(datafolder=folder).order_by('usernanoporesequence__name')
+        if not is_self:
+            nano_connections = nano_connections.filter(
+                usernanoporesequence__is_public=True
+            )
         for nf in nano_connections:
             data[folder_name].append({
                 "name": nf.usernanoporesequence.nanopore_sequence.name,
