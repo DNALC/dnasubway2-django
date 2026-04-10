@@ -5126,7 +5126,7 @@ def list_folders_with_connections(request):
             })
 
         # Nanopore connections
-        nano_connections = NanoporeSequenceFolder.objects.filter(datafolder=folder).order_by('usernanoporesequence__name')
+        nano_connections = NanoporeSequenceFolder.objects.filter(datafolder=folder).order_by('usernanoporesequence__nanopore_sequence__name')
         if not is_self:
             nano_connections = nano_connections.filter(
                 usernanoporesequence__is_public=True
