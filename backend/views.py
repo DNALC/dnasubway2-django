@@ -22,7 +22,6 @@ import random
 import re
 import requests
 import string
-import tempfile
 import time
 import uuid
 #from django.shortcuts import render
@@ -2940,13 +2939,6 @@ def copy_file_to_storage(file_field, destination_name):
         # Save to the destination path within the storage system
         default_storage.save(destination_name, src_file)
 
-def create_temp_directory():
-    project_root = settings.BASE_DIR
-
-    temp_dir = tempfile.mkdtemp(dir=project_root)
-
-    return temp_dir
-
 def upload_nanopore_directory(request):
     """
     Handles directory uploads.
@@ -3184,7 +3176,6 @@ def upload_sanger_files(request):
     project = parsed_data['project']
     files = data.get('files')
 
-    temp_dir = create_temp_directory()
     warnings = []
     processed_count = 0
 
