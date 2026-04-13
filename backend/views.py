@@ -5132,6 +5132,8 @@ def list_folders_with_connections(request):
             data[""].append({
                 "name": un.nanopore_sequence.name,
                 "id": un.nanopore_sequence.id,
+                "is_public": un.is_public,
+                "username": un.user.username,
                 "type": "nanopore"
             })
 
@@ -5162,6 +5164,8 @@ def list_folders_with_connections(request):
             data[folder_name].append({
                 "name": nf.usernanoporesequence.nanopore_sequence.name,
                 "id": nf.usernanoporesequence.nanopore_sequence.id,
+                "is_public": un.is_public,
+                "username": un.user.username,
                 "type": "nanopore"
             })
 
