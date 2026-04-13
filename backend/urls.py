@@ -105,6 +105,13 @@ urlpatterns = [
     path("backend/proname_import", proname_import, name='proname_import'),
     path("backend/proname_filter", proname_filter, name='proname_filter'),
     path("backend/proname_refine", proname_refine, name='proname_refine'),
+    path("backend/create_datafolder", create_datafolder, name='create_datafolder'),
+    path("backend/rename_datafolder", rename_datafolder, name='rename_datafolder'),
+    path("backend/delete_datafolder", delete_datafolder, name='delete_datafolder'),
+    path("backend/add_sanger_to_folder", add_sanger_to_folder, name='add_sanger_to_folder'),
+    path("backend/remove_sanger_from_folder", remove_sanger_from_folder, name='remove_sanger_from_folder'),
+    path("backend/add_nanopore_to_folder", add_nanopore_to_folder, name='add_nanopore_to_folder'),
+    path("backend/remove_nanopore_from_folder", remove_nanopore_from_folder, name='remove_nanopore_from_folder'),
 ]
 
 
