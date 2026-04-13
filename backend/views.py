@@ -3689,19 +3689,55 @@ def toggle_datafile_boolean_field(request, field_name):
     parsed_data = parse_user_data(request)
     if 'error' in parsed_data:
         return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
     data = parsed_data['data']
     datafile_id = data.get("datafile_id")
-    try:
-        datafile = DataFile.objects.get(id=datafile_id, user=request.user)
-    except DataFile.DoesNotExist:
-        return JsonResponse({'error': 'DataFile not found'}, status=404)
-    
-    # Toggle the attribute associated with the provided field_name
-    setattr(datafile, field_name, not getattr(datafile, field_name))
-    datafile.save()
-    
-    # Return a success response with the updated status of the provided field_name
-    return JsonResponse({'success': True, field_name: getattr(datafile, field_name)})
+    nanoporesequence_id = data.get("nanoporesequence_id")
+
+    if datafile_id:
+        try:
+            datafile = DataFile.objects.get(id=datafile_id, user=request.user)
+        except DataFile.DoesNotExist:
+            return JsonResponse({'error': 'DataFile not found'}, status=404)
+
+        if not hasattr(datafile, field_name):
+            return JsonResponse({'error': f'Invalid field: {field_name}'}, status=400)
+
+        current_value = getattr(datafile, field_name)
+        if not isinstance(current_value, bool):
+            return JsonResponse({'error': f'Field {field_name} is not boolean'}, status=400)
+
+        setattr(datafile, field_name, not current_value)
+        datafile.save()
+
+        return JsonResponse({'success': True, field_name: getattr(datafile, field_name)})
+
+    elif nanoporesequence_id:
+        try:
+            nanopore_sequence = NanoporeSequence.objects.get(id=nanoporesequence_id)
+        except NanoporeSequence.DoesNotExist:
+            return JsonResponse({'error': 'NanoporeSequence not found'}, status=404)
+
+        try:
+            user_nanopore = UserNanoporeSequence.objects.get(
+                user=request.user,
+                nanopore_sequence=nanopore_sequence
+            )
+        except UserNanoporeSequence.DoesNotExist:
+            return JsonResponse({'error': 'UserNanoporeSequence not found'}, status=404)
+
+        if field_name != "is_public":
+            return JsonResponse({'error': 'Invalid field for NanoporeSequence'}, status=400)
+
+        user_nanopore.is_public = not user_nanopore.is_public
+        user_nanopore.save()
+
+        return JsonResponse({'success': True, is_public: user_nanopore.is_public})
+
+    return JsonResponse(
+        {'error': 'Either datafile_id or nanoporesequence_id is required'},
+        status=400
+    )
 
 def toggle_visibility(request):
     return toggle_datafile_boolean_field(request, "is_public")
