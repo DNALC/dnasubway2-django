@@ -3732,7 +3732,7 @@ def toggle_datafile_boolean_field(request, field_name):
         user_nanopore.is_public = not user_nanopore.is_public
         user_nanopore.save()
 
-        return JsonResponse({'success': True, is_public: user_nanopore.is_public})
+        return JsonResponse({'success': True, field_name: user_nanopore.is_public})
 
     return JsonResponse(
         {'error': 'Either datafile_id or nanoporesequence_id is required'},
