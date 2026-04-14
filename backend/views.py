@@ -5141,7 +5141,7 @@ def list_folders_with_connections(request):
     folders = DataFolder.objects.filter(user=user).order_by('name')
     for folder in folders:
         folder_name = folder.name
-        data[folder_name] = []
+        data[folder_name] = [{'folder_id': folder.id}]
 
         # Sanger connections
         sanger_connections = SangerSequenceFolder.objects.filter(datafolder=folder).order_by('datafile__name')
@@ -5168,7 +5168,6 @@ def list_folders_with_connections(request):
                 "username": un.user.username,
                 "type": "nanopore"
             })
-
     return JsonResponse(data)
 
 def export_to_genbank(request):
