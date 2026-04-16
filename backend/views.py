@@ -5164,8 +5164,8 @@ def list_folders_with_connections(request):
             data[folder_name].append({
                 "name": nf.usernanoporesequence.nanopore_sequence.name,
                 "id": nf.usernanoporesequence.nanopore_sequence.id,
-                "is_public": un.is_public,
-                "username": un.user.username,
+                "is_public": nf.usernanoporesequence.is_public,
+                "username": nf.usernanoporesequence.user.username,
                 "type": "nanopore"
             })
     return JsonResponse(data)
