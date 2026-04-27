@@ -490,7 +490,8 @@ def process_alignment(input_file_path, muscle_job_id):
     muscle_command = f"{muscle_program} {input_arg_name} {input_file_path} {output_arg_name} {outfile}"
     print(muscle_command)
     p = subprocess.Popen(muscle_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    returnVal = p.wait()
+    stdout, stderr = p.communicate()
+    returnVal = p.returncode
 
     # Prepare response data
     data = {}
@@ -567,7 +568,7 @@ def process_alignment(input_file_path, muscle_job_id):
                 sequence2=key2,
                 similarity_percentage=float(percentage)
             ) for key1, sequence in data["similarity"].items()
-            for key2, percentage in sequence.items() if percentage != "-"
+            for key2, percentage in sequence.items() if percentage not in ("-", "N/A")
         ]
         print("Muscle similarity obj created")
 
