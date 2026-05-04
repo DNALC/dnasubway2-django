@@ -1009,6 +1009,7 @@ def project_info(request):
     serialized_nanopore_sequences = []
     # Get all ProjectNanoporeSequences for the project and retrieve their related NanoporeSequences
     nanopore_sequences = ProjectNanoporeSequence.objects.filter(project=project) \
+        .exclude(nanopore_sequence__source='proname_import') \
         .select_related('nanopore_sequence') \
         .prefetch_related(
             Prefetch(
