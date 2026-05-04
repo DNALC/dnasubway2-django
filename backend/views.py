@@ -1082,6 +1082,7 @@ def project_info(request):
             } if porechop_result else None,
             'porechop_run': True if porechop_jobs else False,
             'medaka_result': {
+                'reference_sequence': medaka_result.fasta_file_medaka_headers.url if medaka_result and medaka_result.fasta_file_medaka_headers else None,
                 'medaka_output_dir': medaka_result.medaka_output_dir if medaka_result else None,
                 'processed_at': medaka_result.processed_at if medaka_result else None
             } if medaka_result else None,
@@ -2644,9 +2645,54 @@ def run_medaka(request):
     data = parsed_data['data']
     project = parsed_data['project']
     nanopore_sequence_ids = data.get('nanopore_sequence_id')  # Can be a single ID or a list
+    reference_choice = data.get('reference_choice', '')
+    reference_file = data.get('reference_file')
+    if reference_choice and reference_choice not in settings.MEDAKA_REFERENCES and reference_choice != "custom":
+        return JsonResponse({'error': 'Bad value for medaka reference'}, status=400)
 
     if not nanopore_sequence_ids:
         return JsonResponse({'error': 'nanopore_sequence_id is required'}, status=400)
+
+    reference_path = None
+    if reference_choice in settings.MEDAKA_REFERENCES:
+        reference_path = "medaka_reference_files/" + settings.MEDAKA_REFERENCES[reference_choice]
+
+    if reference_choice == "custom":
+        sequences = extract_sequences(reference_file)
+        if len(sequences) < 1:
+            return JsonResponse({'error': 'Invalid FASTA format'}, status=400)
+        if len(sequences) > 1:
+            return JsonResponse({'error': 'Multi-sequence FASTA format not permitted'}, status=400)
+        for seq_record in sequences:
+            name = seq_record.id
+            reads = str(seq_record.seq)
+            if len(reads) > 10000:
+                return JsonResponse({'error': f"Sequence {name} is too long."}, status=400)
+            data_file = DataFile.objects.create(
+                user=request.user,
+                name=name,
+                read_type="F",
+                reads=reads,
+                source="upload",
+            )
+            header = re.sub(r'\s+', '_', name)
+            fasta_content = ContentFile(f">{header}\n{reads}\n")
+            fasta_file_name = f"{data_file.id}.fasta"
+            reference_path = f"fasta_files/{fasta_file_name}"
+            fasta_file_path = default_storage.save(reference_path, fasta_content)
+            fasta_full_path = default_storage.path(fasta_file_path)
+            subprocess.run(["samtools", "faidx", fasta_full_path], check=True)
+            fai_path = fasta_full_path + ".fai"
+            with open(fai_path, "rb") as f:
+                fai_content = ContentFile(f.read())
+            fai_storage_path = f"{reference_path}.fai"
+            saved_fai_path = default_storage.save(fai_storage_path, fai_content)
+            data_file.associated_fasta.name = fasta_file_path
+            data_file.save()
+            ProjectDataFile.objects.create(
+                project=project,
+                data_file=data_file
+            )
 
     # Normalize to a list if a single ID is provided
     if isinstance(nanopore_sequence_ids, int):
@@ -2691,7 +2737,7 @@ def run_medaka(request):
             project_id=project.id,
             status='pending'
         )
-        run_medaka_task.delay(project_nanopore_sequence.id)
+        run_medaka_task.delay(project_nanopore_sequence.id, reference_path)
 
         # Track the created job
         jobs_created.append(nanopore_sequence_id)
@@ -6514,9 +6560,13 @@ def validate_metadata(request):
 
     if project.sequencing_type == "nanopore":
         # Get all ProjectNanoporeSequences for the project and retrieve their related NanoporeSequences
-        nanopore_sequences = ProjectNanoporeSequence.objects.filter(project=project) \
-            .select_related('nanopore_sequence') \
+        nanopore_sequences = (
+            ProjectNanoporeSequence.objects
+            .filter(project=project)
+            .exclude(nanopore_sequence__source='proname_import')
+            .select_related('nanopore_sequence')
             .order_by('nanopore_sequence__name')
+        )
         if not nanopore_sequences.exists():
             return JsonResponse({'error': 'No nanopore files found for this project.'}, status=400)
         try:
@@ -6717,6 +6767,12 @@ def ub_classifiers(request):
     classifiers = settings.CLASSIFIERS.keys()
     return JsonResponse({
         'classifiers': list(classifiers)
+    })
+
+def medaka_references(request):
+    references = settings.MEDAKA_REFERENCES.keys()
+    return JsonResponse({
+        'references': list(references) + ["custom"]
     })
 
 def proname_import(request):

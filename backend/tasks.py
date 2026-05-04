@@ -133,51 +133,73 @@ def run_porechop_task(project_nanopore_sequence_id, filtered_file_path):
         job.save()
 
 @shared_task
-def run_medaka_task(project_nanopore_sequence_id):
+def run_medaka_task(project_nanopore_sequence_id, reference_fasta_path=None):
     try:
         # Get the PorechopResult object
         porechop_result = PorechopResult.objects.get(project_nanopore_sequence_id=project_nanopore_sequence_id)
         chopped_file_path = porechop_result.chopped_file.path
 
-        # Prepare file paths for the fasta and medaka output
-        fasta_file_path = chopped_file_path.replace('.fastq', '.fasta')
-        fasta_file_medaka_headers_path = fasta_file_path.replace('.fasta', '_medaka_headers.fasta')
         medaka_output_dir = f"medaka_output/{project_nanopore_sequence_id}/"
-        consensus_fasta_path = os.path.join(medaka_output_dir, 'consensus.fasta')
 
         # Ensure output directory exists
         os.makedirs(medaka_output_dir, exist_ok=True)
 
-        # Step 1: Convert fastq to fasta
-        command1 = f"cat {chopped_file_path} | awk '{{if(NR%4==1) {{printf(\">%s\\n\",substr($0,2));}} else if(NR%4==2) print;}}' > {fasta_file_path}"
-        subprocess.run(command1, shell=True, check=True)
+        fasta_file_path = chopped_file_path # Default to chopped file
+        header_file_path = reference_fasta_path
 
-        # Step 2: Modify headers for medaka
-        command2 = f"cat {fasta_file_path} | sed s/'^>'/'>amp_rep'/g > {fasta_file_medaka_headers_path}"
-        subprocess.run(command2, shell=True, check=True)
+        if reference_fasta_path:
+            # --- Reference-Based Approach ---
+            command = f"medaka_consensus -i {chopped_file_path} -d {reference_fasta_path} -o {medaka_output_dir}"
+            subprocess.run(command, shell=True, check=True)
 
-        # Step 3: Run medaka
-        command3 = f"medaka smolecule --length 0 {medaka_output_dir} {fasta_file_medaka_headers_path}"
-        #command3 = f"medaka smolecule --length 250 {medaka_output_dir} {fasta_file_medaka_headers_path}"
-        subprocess.run(command3, shell=True, check=True)
+            consensus_fasta_path = os.path.join(medaka_output_dir, 'consensus.fasta')
+            bam_path = os.path.join(medaka_output_dir, 'calls_to_draft.bam')
+
+            if os.path.exists(bam_path):
+                subprocess.run(f"samtools index {bam_path}", shell=True, check=True)
+            if os.path.exists(consensus_fasta_path):
+                subprocess.run(f"samtools faidx {consensus_fasta_path}", shell=True, check=True)
+
+        else:
+            # --- De Novo Approach ---
+            fasta_file_path = chopped_file_path.replace('.fastq', '.fasta')
+            header_file_path = fasta_file_path.replace('.fasta', '_medaka_headers.fasta')
+
+            # Step 1: Convert fastq to fasta
+            conv_cmd = f"cat {chopped_file_path} | awk '{{if(NR%4==1) {{printf(\">%s\\n\",substr($0,2));}} else if(NR%4==2) print;}}' > {fasta_file_path}"
+            subprocess.run(conv_cmd, shell=True, check=True)
+
+            # Step 2: Modify headers
+            head_cmd = f"cat {fasta_file_path} | sed s/'^>'/'>amp_rep'/g > {header_file_path}"
+            subprocess.run(head_cmd, shell=True, check=True)
+
+            # Step 3: Run medaka smolecule
+            medaka_cmd = f"medaka smolecule --length 0 {medaka_output_dir} {header_file_path}"
+            subprocess.run(medaka_cmd, shell=True, check=True)
+
+            consensus_fasta_path = os.path.join(medaka_output_dir, 'consensus.fasta')
 
         # Save MedakaResult
         project_nanopore_sequence = ProjectNanoporeSequence.objects.get(id=project_nanopore_sequence_id)
         MedakaResult.objects.create(
             project_nanopore_sequence=project_nanopore_sequence,
-            fasta_file=fasta_file_path,
-            fasta_file_medaka_headers=fasta_file_medaka_headers_path,
+            fasta_file=chopped_file_path,
+            fasta_file_medaka_headers=header_file_path,
             medaka_output_dir=medaka_output_dir,  # Store directory path
             processed_at=timezone.now()
         )
         # Extract name and reads from the consensus.fasta file
         sequences = list(SeqIO.parse(consensus_fasta_path, 'fasta'))
         total_sequences = len(sequences)
-        num_digits = len(str(total_sequences))
 
         base_name = project_nanopore_sequence.nanopore_sequence.name
         for idx, record in enumerate(sequences, start=1):
-            name = f"{base_name}_{str(idx).zfill(num_digits)}_{record.description.split()[-1]}" if total_sequences > 1 else base_name
+            if reference_fasta_path:
+                # Reference-based naming
+                name = f"{base_name}_consensus_{idx}" if total_sequences > 1 else f"{base_name}_consensus"
+            else:
+                num_digits = len(str(total_sequences))
+                name = f"{base_name}_{str(idx).zfill(num_digits)}_{record.description.split()[-1]}" if total_sequences > 1 else base_name
             reads = str(record.seq)
             # Create a DataFile instance for the consensus FASTA
             data_file = DataFile.objects.create(
