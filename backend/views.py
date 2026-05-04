@@ -1034,6 +1034,11 @@ def project_info(request):
     nanopore = []
     for pns in nanopore_sequences:
         nanopore_sequence = pns.nanopore_sequence
+        with nanopore_sequence.file.open('rb') as compressed_file:
+            with gzip.open(compressed_file, 'rt') as f:
+                line1 = f.readline()
+                line2 = f.readline()
+        nanopore_first_lines = line1 + line2
         sample_set = NanoporeSampleSet.objects.filter(directory__in=[
             nanopore_sequence.file.name[:len(sample_set.directory)] for sample_set in NanoporeSampleSet.objects.all()
         ]).first()
@@ -1069,6 +1074,7 @@ def project_info(request):
             'sample_set_name': set_name,
             'sample_set': True if sample_set else False,
             'name': nanopore_sequence.name,
+            'first_lines': nanopore_first_lines,
             'fastp_result': {
                 'filtered_file': fastp_result.filtered_file.url if fastp_result else None,
                 'json_file': fastp_result.json_file.url if fastp_result else None,
