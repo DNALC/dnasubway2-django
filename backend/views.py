@@ -6809,8 +6809,8 @@ def proname_import(request):
         invalid = (
             not forwardPrimer
             or not reversePrimer
-            or not (15 <= len(forwardPrimer) <= 40)
-            or not (15 <= len(reversePrimer) <= 40)
+            or not (15 <= len(forwardPrimer) <= 50)
+            or not (15 <= len(reversePrimer) <= 50)
             or not PRIMER_REGEX.fullmatch(forwardPrimer)
             or not PRIMER_REGEX.fullmatch(reversePrimer)
         )
