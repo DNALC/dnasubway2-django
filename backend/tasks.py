@@ -63,6 +63,8 @@ def run_fastp_task(fastp_job_id, reads_to_process, qualified_quality_phred, leng
     if length_limit is not None:
         fastp_command.extend(['--length_limit', str(length_limit)])
 
+    tmp_path = None
+
     if adapter is not None:
         if re.fullmatch(r'[ACTG]{15,40}', adapter, re.IGNORECASE):
             fastp_command.extend(["--adapter_sequence", adapter.upper()])
