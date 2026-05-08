@@ -364,7 +364,8 @@ class PronameRefineJobDetail(models.Model):
         ('greengenes2', 'greengenes2'),
         ('silva138', 'silva138'),
         ('regenb_full', 'regenb_full'),
-        ('regenb_unique', 'regenb_unique')
+        ('regenb_unique', 'regenb_unique'),
+        ('coi', 'coi')
     ]
     CLUSTERING_METHODS = [
         ('vsearch', 'vsearch'),
