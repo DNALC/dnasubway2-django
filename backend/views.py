@@ -2462,6 +2462,25 @@ def validate_optional_int(value, field_name, min_val=None, max_val=None):
 
     return None
 
+def is_valid_adapter_input(adapter):
+    """
+    Returns True if input is a 15-40bp DNA sequence OR a FASTA format string.
+    Returns False otherwise.
+    """
+    if not adapter or not isinstance(adapter, str):
+        return False
+
+    adapter = adapter.strip()
+
+    # Criteria 1: 15-40bp ACTG sequence
+    is_single_seq = bool(re.fullmatch(r'[ACTG]{15,40}', adapter, re.IGNORECASE))
+
+    # Criteria 2: FASTA format
+    # Basic check: starts with '>' and has at least one newline/sequence data
+    is_fasta = adapter.startswith(">") and len(adapter) > 1
+
+    return is_single_seq or is_fasta
+
 def submit_fastp_job(request):
     parsed_data = parse_user_project_data(request)
     if 'error' in parsed_data:
@@ -2473,6 +2492,8 @@ def submit_fastp_job(request):
     nanopore_sequence_ids = data.get('nanopore_sequence_id')
     reads_to_process = data.get('reads_to_process')
     qualified_quality_phred = data.get('qualified_quality_phred')
+    average_qual = data.get('average_qual')
+    adapter = data.get('adapter')
     length_required = data.get('length_required')
     length_limit = data.get('length_limit')
     report_title = data.get('report_title')
@@ -2480,10 +2501,12 @@ def submit_fastp_job(request):
     if not nanopore_sequence_ids:
         return JsonResponse({'error': 'nanopore_sequence_id is required'}, status=400)
 
+    if adapter and not is_valid_adapter_input(adapter):
+        return JsonResponse({'error': 'Not a valid adapter'}, status=400)
 
     if reads_to_process is not None:
         error = validate_optional_int(
-            reads_to_process, 'reads_to_process', 0, 100
+            reads_to_process, 'reads_to_process', 0, 10000
         )
         if error:
             return error
@@ -2491,6 +2514,13 @@ def submit_fastp_job(request):
     if qualified_quality_phred is not None:
         error = validate_optional_int(
             qualified_quality_phred, 'qualified_quality_phred', 0, 40
+        )
+        if error:
+            return error
+
+    if average_qual is not None:
+        error = validate_optional_int(
+            average_qual, 'average_qual', 0, 40
         )
         if error:
             return error
@@ -2547,7 +2577,7 @@ def submit_fastp_job(request):
         )
 
         # Queue the fastp task asynchronously with Celery
-        run_fastp_task.delay(fastp_job.id, reads_to_process, qualified_quality_phred, length_required, length_limit, report_title)
+        run_fastp_task.delay(fastp_job.id, reads_to_process, qualified_quality_phred, length_required, length_limit, report_title, average_qual, adapter)
 
         # Track the created job
         jobs_created.append(nanopore_sequence_id)

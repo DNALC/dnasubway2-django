@@ -17,7 +17,7 @@ from django.conf import settings
 import tempfile
 
 @shared_task
-def run_fastp_task(fastp_job_id, reads_to_process, qualified_quality_phred, length_required, length_limit, report_title):
+def run_fastp_task(fastp_job_id, reads_to_process, qualified_quality_phred, length_required, length_limit, report_title, average_qual, adapter):
     # Retrieve the FastpJob
     fastp_job = FastpJob.objects.get(id=fastp_job_id)
     project_nanopore_sequence = ProjectNanoporeSequence.objects.get(
@@ -54,11 +54,33 @@ def run_fastp_task(fastp_job_id, reads_to_process, qualified_quality_phred, leng
     if qualified_quality_phred is not None:
         fastp_command.extend(['-q', str(qualified_quality_phred)])
 
+    if average_qual is not None:
+        fastp_command.extend(['-e', str(average_qual)])
+
     if length_required is not None:
         fastp_command.extend(['-l', str(length_required)])
 
     if length_limit is not None:
         fastp_command.extend(['--length_limit', str(length_limit)])
+
+    if adapter is not None:
+        if re.fullmatch(r'[ACTG]{15,40}', adapter, re.IGNORECASE):
+            fastp_command.extend(["--adapter_sequence", adapter.upper()])
+        elif adapter.startswith(">"):
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.fasta', delete=False) as tmp:
+                tmp.write(adapter)
+                tmp_path = tmp.name
+            try:
+                command.extend(["--adapter_fasta", tmp_path])
+            except:
+                pass
+    if tmp_path:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except:
+            pass
+
     try:
         subprocess.run(fastp_command, check=True)
 
