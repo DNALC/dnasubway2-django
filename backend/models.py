@@ -365,7 +365,8 @@ class PronameRefineJobDetail(models.Model):
         ('silva138', 'silva138'),
         ('regenb_full', 'regenb_full'),
         ('regenb_unique', 'regenb_unique'),
-        ('coi', 'coi')
+        ('coi', 'coi'),
+        ('bold_coi', 'bold_coi')
     ]
     CLUSTERING_METHODS = [
         ('vsearch', 'vsearch'),
