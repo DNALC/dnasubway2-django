@@ -2738,7 +2738,7 @@ def run_medaka(request):
     # Prepare lists to track job statuses
     jobs_created = []
     already_existing_jobs = []
-    missing_porechop_results = []
+    missing_input_files = []
     missing_project_nanopore_sequences = []
 
     # Loop through each nanopore_sequence_id to process them
@@ -2752,12 +2752,19 @@ def run_medaka(request):
             missing_project_nanopore_sequences.append(nanopore_sequence_id)
             continue
 
-        # Check if a PorechopResult exists for this ProjectNanoporeSequence
-        porechop_result = PorechopResult.objects.filter(
-            project_nanopore_sequence=project_nanopore_sequence
-        ).first()
-        if not porechop_result:
-            missing_porechop_results.append(nanopore_sequence_id)
+        porechop_result = PorechopResult.objects.filter(project_nanopore_sequence=project_nanopore_sequence).first()
+        fastp_result = FastpResult.objects.filter(project_nanopore_sequence=project_nanopore_sequence).first()
+
+        input_file_path = None
+        if porechop_result and porechop_result.chopped_file:
+            input_file_path = porechop_result.chopped_file.path
+        elif fastp_result and fastp_result.filtered_file:
+            input_file_path = fastp_result.filtered_file.path
+        elif project_nanopore_sequence.nanopore_sequence and project_nanopore_sequence.nanopore_sequence.file:
+            input_file_path = project_nanopore_sequence.nanopore_sequence.file.path
+
+        if not input_file_path:
+            missing_input_files.append(nanopore_sequence_id)
             continue
 
         # Ensure MedakaJob is not already running
@@ -2774,7 +2781,7 @@ def run_medaka(request):
             project_id=project.id,
             status='pending'
         )
-        run_medaka_task.delay(project_nanopore_sequence.id, reference_path)
+        run_medaka_task.delay(project_nanopore_sequence.id, reference_path, input_file_path)
 
         # Track the created job
         jobs_created.append(nanopore_sequence_id)
@@ -2783,7 +2790,7 @@ def run_medaka(request):
     response = {
         'jobs_created': jobs_created,
         'already_existing_jobs': already_existing_jobs,
-        'missing_porechop_results': missing_porechop_results,
+        'missing_porechop_results': missing_input_files,
         'missing_project_nanopore_sequences': missing_project_nanopore_sequences,
     }
 

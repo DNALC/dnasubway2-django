@@ -25,7 +25,7 @@ def run_fastp_task(fastp_job_id, reads_to_process, qualified_quality_phred, leng
         project=fastp_job.project
     )
 
-    nanopore_sequence_file = project_nanopore_sequence.nanopore_sequence.file.name
+    nanopore_sequence_file = project_nanopore_sequence.nanopore_sequence.file.path
     report_title = report_title or project_nanopore_sequence.nanopore_sequence.name
 
     # Use the ID of the ProjectNanoporeSequence for unique filenames
@@ -66,22 +66,18 @@ def run_fastp_task(fastp_job_id, reads_to_process, qualified_quality_phred, leng
     tmp_path = None
 
     if adapter is not None:
+        # If it's a raw sequence string
         if re.fullmatch(r'[ACTG]{15,40}', adapter, re.IGNORECASE):
             fastp_command.extend(["--adapter_sequence", adapter.upper()])
+        # If it's a raw FASTA format string
         elif adapter.startswith(">"):
             with tempfile.NamedTemporaryFile(mode='w', suffix='.fasta', delete=False) as tmp:
                 tmp.write(adapter)
                 tmp_path = tmp.name
             try:
-                command.extend(["--adapter_fasta", tmp_path])
+                fastp_command.extend(["--adapter_fasta", tmp_path])
             except:
                 pass
-    if tmp_path:
-        try:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-        except:
-            pass
 
     try:
         subprocess.run(fastp_command, check=True)
@@ -102,6 +98,12 @@ def run_fastp_task(fastp_job_id, reads_to_process, qualified_quality_phred, leng
         # Log failure or handle as necessary
         fastp_job.status = 'failed'
         fastp_job.save()
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
 @shared_task
 def run_porechop_task(project_nanopore_sequence_id, filtered_file_path):
@@ -157,40 +159,51 @@ def run_porechop_task(project_nanopore_sequence_id, filtered_file_path):
         job.save()
 
 @shared_task
-def run_medaka_task(project_nanopore_sequence_id, reference_fasta_path=None):
+def run_medaka_task(project_nanopore_sequence_id, reference_fasta_path=None, input_file_path=None):
     try:
-        # Get the PorechopResult object
-        porechop_result = PorechopResult.objects.get(project_nanopore_sequence_id=project_nanopore_sequence_id)
-        chopped_file_path = porechop_result.chopped_file.path
+        project_nanopore_sequence = ProjectNanoporeSequence.objects.get(id=project_nanopore_sequence_id)
+        if not input_file_path:
+            porechop_result = PorechopResult.objects.filter(project_nanopore_sequence=project_nanopore_sequence).first()
+            fastp_result = FastpResult.objects.filter(project_nanopore_sequence=project_nanopore_sequence).first()
+
+            if porechop_result and porechop_result.chopped_file:
+                input_file_path = porechop_result.chopped_file.path
+            elif fastp_result and fastp_result.filtered_file:
+                input_file_path = fastp_result.filtered_file.path
+            else:
+                input_file_path = project_nanopore_sequence.nanopore_sequence.file.path
 
         medaka_output_dir = f"medaka_output/{project_nanopore_sequence_id}/"
-
         # Ensure output directory exists
         os.makedirs(medaka_output_dir, exist_ok=True)
-
-        fasta_file_path = chopped_file_path # Default to chopped file
         header_file_path = reference_fasta_path
 
         if reference_fasta_path:
             # --- Reference-Based Approach ---
-            command = f"medaka_consensus -i {chopped_file_path} -d {reference_fasta_path} -o {medaka_output_dir}"
+            command = f"medaka_consensus -i {input_file_path} -d {reference_fasta_path} -o {medaka_output_dir}"
             subprocess.run(command, shell=True, check=True)
 
             consensus_fasta_path = os.path.join(medaka_output_dir, 'consensus.fasta')
-            bam_path = os.path.join(medaka_output_dir, 'calls_to_draft.bam')
+            max_bam_path = os.path.join(medaka_output_dir, 'calls_to_draft.bam')
 
-            if os.path.exists(bam_path):
-                subprocess.run(f"samtools index {bam_path}", shell=True, check=True)
+            if os.path.exists(max_bam_path):
+                subprocess.run(f"samtools index {max_bam_path}", shell=True, check=True)
             if os.path.exists(consensus_fasta_path):
                 subprocess.run(f"samtools faidx {consensus_fasta_path}", shell=True, check=True)
 
         else:
             # --- De Novo Approach ---
-            fasta_file_path = chopped_file_path.replace('.fastq', '.fasta')
-            header_file_path = fasta_file_path.replace('.fasta', '_medaka_headers.fasta')
+            base_path = input_file_path
+            for ext in ['.fastq.gz', '.fastq', '.fq.gz', '.fq']:
+                if base_path.lower().endswith(ext):
+                    base_path = base_path[:-len(ext)]
+                    break
+            fasta_file_path = f"{base_path}.fasta"
+            header_file_path = f"{base_path}_medaka_headers.fasta"
 
-            # Step 1: Convert fastq to fasta
-            conv_cmd = f"cat {chopped_file_path} | awk '{{if(NR%4==1) {{printf(\">%s\\n\",substr($0,2));}} else if(NR%4==2) print;}}' > {fasta_file_path}"
+            # Step 1: Convert fastq to fasta (Handles raw text streaming or compressed .gz streaming dynamically)
+            cat_cmd = "gzip -dc" if input_file_path.lower().endswith('.gz') else "cat"
+            conv_cmd = f"{cat_cmd} {input_file_path} | awk '{{if(NR%4==1) {{printf(\">%s\\n\",substr($0,2));}} else if(NR%4==2) print;}}' > {fasta_file_path}"
             subprocess.run(conv_cmd, shell=True, check=True)
 
             # Step 2: Modify headers
@@ -204,10 +217,9 @@ def run_medaka_task(project_nanopore_sequence_id, reference_fasta_path=None):
             consensus_fasta_path = os.path.join(medaka_output_dir, 'consensus.fasta')
 
         # Save MedakaResult
-        project_nanopore_sequence = ProjectNanoporeSequence.objects.get(id=project_nanopore_sequence_id)
         MedakaResult.objects.create(
             project_nanopore_sequence=project_nanopore_sequence,
-            fasta_file=chopped_file_path,
+            fasta_file=input_file_path,
             fasta_file_medaka_headers=header_file_path,
             medaka_output_dir=medaka_output_dir,  # Store directory path
             processed_at=timezone.now()
