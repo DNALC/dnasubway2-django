@@ -565,7 +565,7 @@ def ensure_instance_ready(instance_name):
             "-o BatchMode=yes "
             "-o StrictHostKeyChecking=no "
             "-i ~/.ssh/other/jetstream2 "
-            "exouser@149.165.171.197 exit"
+            "exouser@149.165.174.73 exit"
         )
         try:
             subprocess.check_call(ssh_cmd, shell=True)
