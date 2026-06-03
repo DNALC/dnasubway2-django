@@ -6999,6 +6999,27 @@ def proname_filter(request):
     if not proname_import_result or not any(getattr(proname_import_result, f, None) for f in required_read_fields):
         return JsonResponse({'error': 'Simplex, duplex, and dual reads not found.'}, status=400)
 
+    existing_detail = (
+        PronameFilterJobDetail.objects.filter(
+            job__status='FINISHED',
+            job__project=project,
+            job__appId=settings.QIIME2_PRONAME_FILTER_APP_ID,
+            proname_import_job=proname_import_job,
+            data_type=dataType,
+            filt_min_length=filtMinLength,
+            filt_max_length=filtMaxLength,
+            filt_min_qual=filtMinQual,
+        )
+        .select_related('job')
+        .order_by('-job__id')
+        .first()
+    )
+
+    if existing_detail:
+        return JsonResponse({
+            'error': f"A successful Filter Reads job with these parameters already exists for this project: pronameFilter{existing_detail.job.id}",
+        }, status=400)
+
     simplex_reads = None
     duplex_reads = None
     dual_reads = None
@@ -7015,6 +7036,7 @@ def proname_filter(request):
     PronameFilterJobDetail.objects.create(
         job=job,
         data_type=dataType,
+        proname_import_job=proname_import_job,
         filt_min_length=filtMinLength,
         filt_max_length=filtMaxLength,
         filt_min_qual=filtMinQual
@@ -7119,6 +7141,29 @@ def proname_refine(request):
     if not proname_filter_result or not any(getattr(proname_filter_result, f, None) for f in required_read_fields):
         return JsonResponse({'error': 'Simplex, duplex, and dual reads not found.'}, status=400)
 
+    existing_detail = (
+        PronameRefineJobDetail.objects.filter(
+            job__status='FINISHED',
+            job__project=project,
+            job__appId=settings.QIIME2_PRONAME_REFINE_APP_ID,
+            proname_filter_job=proname_filter_job,
+            chimera_db=chimeraDb,
+            cluster_id=clusterId,
+            min_reads_per_cluster=minReadsPerCluster,
+            clustering_method=clusterMethod,
+            medaka_model=medakaModel,
+            metadata_file=metadata_file
+        )
+        .select_related('job')
+        .order_by('-job__id')
+        .first()
+    )
+
+    if existing_detail:
+        return JsonResponse({
+            'error': f"A successful Refine Reads job with these parameters already exists for this project: pronameRefine{existing_detail.job.id}",
+        }, status=400)
+
     simplex_reads = None
     duplex_reads = None
     dual_reads = None
@@ -7134,6 +7179,7 @@ def proname_refine(request):
     job.save()
     PronameRefineJobDetail.objects.create(
         job=job,
+        proname_filter_job=proname_filter_job,
         chimera_db=chimeraDb,
         cluster_id=clusterId,
         min_reads_per_cluster=minReadsPerCluster,
