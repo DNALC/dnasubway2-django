@@ -6216,6 +6216,33 @@ def set_job_primary(request):
 
     return JsonResponse({'success': f'Job {job_id} is now set as primary'})
 
+def set_job_name(request):
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+    data = parsed_data['data']
+    job_id = data.get('job_id', 0)
+    chosen_name = str(data.get('chosen_name') or '')[:255]
+
+    try:
+        job = Job.objects.get(id=job_id)
+    except Job.DoesNotExist:
+        return JsonResponse({'error': 'Job not found'}, status=400)
+
+    if job.user != request.user:
+        return JsonResponse({'error': 'You do not have permission for this job'}, status=400)
+
+    if job.status != "FINISHED":
+        return JsonResponse({'error': 'Job is not finished'}, status=400)
+
+    if not job.project:
+        return JsonResponse({'error': 'Job not tied to project'}, status=400)
+
+    job.chosen_name = chosen_name
+    job.save()
+
+    return JsonResponse({'success': f'Job {job_id} is now set as primary'})
+
 def job_info(request):
     if not request.user or not request.user.is_authenticated:
         return JsonResponse({'error': 'User is not authenticated'}, status=401)

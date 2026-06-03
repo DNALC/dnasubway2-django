@@ -102,6 +102,7 @@ urlpatterns = [
     path("backend/coremetrics", coremetrics, name='coremetrics'),
     path("backend/ancom", ancom, name='ancom'),
     path("backend/set_job_primary", set_job_primary, name='set_job_primary'),
+    path("backend/set_job_name", set_job_name, name='set_job_name'),
     path("backend/job_info", job_info, name='job_info'),
     path("backend/proname_import", proname_import, name='proname_import'),
     path("backend/proname_filter", proname_filter, name='proname_filter'),
