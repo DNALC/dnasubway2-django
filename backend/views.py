@@ -1354,7 +1354,7 @@ def project_info(request):
                 if hasattr(job, "rarefaction_detail"):
                     detail = job.rarefaction_detail
                     job_data.update({
-                        "dada2_job_id": detail.dada2_job.id,
+                        "dada2_job": detail.dada2_job.chosen_name or f"trim{detail.dada2_job.id}",
                         "minDepth": detail.minDepth,
                         "maxDepth": detail.maxDepth,
                     })
@@ -1386,7 +1386,7 @@ def project_info(request):
                 if hasattr(job, "coremetrics_detail"):
                     detail = job.coremetrics_detail
                     job_data.update({
-                        "dada2_job_id": detail.dada2_job.id,
+                        "dada2_job": detail.dada2_job.chosen_name or f"trim{detail.dada2_job.id}",
                         "sdepth": detail.sdepth,
                         "classifier": detail.classifier,
                     })
@@ -1469,7 +1469,7 @@ def project_info(request):
                 if hasattr(job, "ancom_detail"):
                     detail = job.ancom_detail
                     job_data.update({
-                        "coremetrics_job_id": detail.coremetrics_job.id,
+                        "coremetrics_job": detail.coremetrics_job.chosen_name or f"cm{detail.coremetrics_job.id}",
                         "category": detail.category,
                         "formula": detail.formula,
                         "taxalevel": detail.taxalevel,
