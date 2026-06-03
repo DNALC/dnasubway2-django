@@ -625,6 +625,7 @@ class Job(models.Model):
     uuid = models.CharField(max_length=40, unique=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     primary = models.BooleanField(default=False)
+    chosen_name = models.CharField(max_length=255, default='')
 
     def __str__(self):
         return f"Job {self.uuid} - {self.status}"
