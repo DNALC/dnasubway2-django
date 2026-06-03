@@ -1590,6 +1590,7 @@ def project_info(request):
                     job_data.update({
                         "chimera_db": detail.chimera_db,
                         "cluster_id": detail.cluster_id,
+                        "min_reads_per_cluster": detail.min_reads_per_cluster,
                         "clustering_method": detail.clustering_method,
                         "medaka_model": detail.medaka_model,
                         "metadata_file": detail.metadata_file.id,
