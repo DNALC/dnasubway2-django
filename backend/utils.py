@@ -16,6 +16,7 @@ import tempfile
 import time
 import uuid
 import zipfile
+import h5py
 from tapipy.tapis import Tapis
 from .models import Job, DataFile, TrimJob, ConsensusJob, ConsensusData, BlastJob, BlastData, BlastResult, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, Project, ProjectDataFile, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, BlastCache, ProjectMetabarcodingFile, PronameRefineJobDetail
 from django.core.files.base import ContentFile
@@ -2318,3 +2319,44 @@ def is_fastq_text(file_obj):
         return first_char == b'@'
     except Exception:
         return False
+
+def get_sampling_depth_guardrails(qza_path):
+    """
+    Returns (retain_all_limit, suggested, max_crash_limit) for the provided .qza file.
+    If the dataset is too small (<3 samples) or errors, returns (10, 3000, 100000).
+    """
+    path = Path(qza_path)
+    default_min, default_suggested, default_max = 10, 3000, 20000
+
+    try:
+        with zipfile.ZipFile(path, "r") as z:
+            biom_filename = next((f for f in z.namelist() if f.endswith("feature-table.biom")), None)
+            if not biom_filename:
+                return default_min, default_suggested, default_max
+
+            with tempfile.TemporaryDirectory() as temp_dir:
+                extracted_path = z.extract(biom_filename, path=temp_dir)
+
+                with h5py.File(extracted_path, 'r') as h5:
+                    data = h5['sample']['matrix']['data']
+                    indptr = h5['sample']['matrix']['indptr']
+
+                    num_samples = len(indptr) - 1
+                    if num_samples < 3:
+                        return default_min, default_suggested, default_max
+
+                    sample_counts = []
+                    for i in range(num_samples):
+                        start = indptr[i]
+                        end = indptr[i+1]
+                        sample_counts.append(int(sum(data[start:end])))
+
+                    counts = sorted(sample_counts, reverse=True)
+                    min_depth = counts[-1]
+                    crash_limit = counts[2]
+                    suggested = min(crash_limit, default_suggested)
+                    suggested = max(suggested, min_depth)
+                    return min_depth, suggested, crash_limit
+
+    except Exception:
+        return default_min, default_suggested, default_max
