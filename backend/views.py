@@ -1552,6 +1552,7 @@ def project_info(request):
                 if hasattr(job, "proname_filter_detail"):
                     detail = job.proname_filter_detail
                     job_data.update({
+                        "proname_import_job": detail.proname_import_job.chosen_name or f"pronameImport{detail.proname_import_job.id}",
                         "data_type": detail.data_type,
                         "filt_min_length": detail.filt_min_length,
                         "filt_max_length": detail.filt_max_length,
@@ -1595,6 +1596,7 @@ def project_info(request):
                 if hasattr(job, "proname_refine_detail"):
                     detail = job.proname_refine_detail
                     job_data.update({
+                        "filter_job": detail.filter_job.chosen_name or f"pronameFilter{detail.filter_job.id}",
                         "chimera_db": detail.chimera_db,
                         "cluster_id": detail.cluster_id,
                         "min_reads_per_cluster": detail.min_reads_per_cluster,
