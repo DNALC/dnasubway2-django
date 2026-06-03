@@ -429,6 +429,7 @@ class PronameRefineJobDetail(models.Model):
     job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_refine_detail")
     chimera_db = models.CharField(max_length=32, choices=CHIMERA_DBS, default='greengenes2')
     cluster_id = models.DecimalField(max_digits=3, decimal_places=2, validators=[MinValueValidator(0.0), MaxValueValidator(1.0)])
+    min_reads_per_cluster = models.PositiveIntegerField(default=2)
     clustering_method = models.CharField(max_length=16, choices=CLUSTERING_METHODS, default='vsearch')
     medaka_model = models.CharField(max_length=64, choices=MEDAKA_MODELS, default='r1041_e82_400bps_sup_v5.2.0')
     metadata_file = models.ForeignKey(MetadataFile, on_delete=models.CASCADE, related_name="proname_refine_details")

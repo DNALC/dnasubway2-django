@@ -6997,6 +6997,12 @@ def proname_refine(request):
     chimeraDb = data.get("chimeradb")
     clusterMethod = data.get("clusteringmethod")
     medakaModel = data.get("medakamodel")
+    try:
+        minReadsPerCluster = int(data.get("minreadspercluster", 2))
+    except (ValueError, TypeError):
+        return JsonResponse({'error': 'Minimum reads per cluster must be an integer.'}, status=400)
+    if minReadsPerCluster < 1:
+        return JsonResponse({'error': 'minReadsPerCluster must be greater than 0.'}, status=400)
     file_id = data.get('metadata_file_id')
     nanopore_sequences = (
         ProjectNanoporeSequence.objects
@@ -7095,9 +7101,10 @@ def proname_refine(request):
         job=job,
         chimera_db=chimeraDb,
         cluster_id=clusterId,
+        min_reads_per_cluster=minReadsPerCluster,
         clustering_method=clusterMethod,
         medaka_model=medakaModel,
         metadata_file=metadata_file
     )
-    submit_proname_refine_job_task.delay(job.id, clusterId, clusterMethod, medakaModel, chimeraDb, simplex_reads, duplex_reads, dual_reads)
+    submit_proname_refine_job_task.delay(job.id, clusterId, minReadsPerCluster, clusterMethod, medakaModel, chimeraDb, simplex_reads, duplex_reads, dual_reads)
     return JsonResponse({'job_uuid': job.uuid, 'status': job.status})

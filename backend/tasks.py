@@ -1553,7 +1553,7 @@ def submit_proname_filter_job_task(job_id, dataType, filtMinLength, filtMaxLengt
         job.save()
 
 @shared_task
-def submit_proname_refine_job_task(job_id, clusterId, clusteringMethod, medakaModel, chimeraDb, simplex_reads, duplex_reads, dual_reads):
+def submit_proname_refine_job_task(job_id, clusterId, minReadsPerCluster, clusteringMethod, medakaModel, chimeraDb, simplex_reads, duplex_reads, dual_reads):
     job = Job.objects.get(id=job_id)
     project = job.project
     user = job.user
@@ -1608,6 +1608,7 @@ def submit_proname_refine_job_task(job_id, clusterId, clusteringMethod, medakaMo
                 {"key": "CLUSTER_ID", "value": str(clusterId)},
                 {"key": "CLUSTERING_METHOD", "value": clusteringMethod},
                 {"key": "MEDAKA_MODEL", "value": medakaModel},
+                {"key": "MIN_READS_PER_CLUSTER", "value": str(minReadsPerCluster)},
                 {"key": "CHIMERA_DB", "value": settings.CHIMERA_DBS.get(chimeraDb, settings.CHIMERA_DBS["greengenes2"])},
             ]
         }
