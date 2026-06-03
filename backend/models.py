@@ -334,6 +334,37 @@ class PronameImportResult(models.Model):
     duplex_reads = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
     dual_reads = models.FileField(upload_to="proname_import_files/", blank=True, null=True)
 
+class Job(models.Model):
+    STATUS_CHOICES = [
+        ('STARTING', 'System instance booting'),
+        ('FAILED_BOOT', 'System instance booting failed'),
+        ('PENDING', 'Job processing beginning'),
+        ('PROCESSING_INPUTS', 'Identifying input files for staging'),
+        ('STAGING_INPUTS', 'Transferring job input data to execution system'),
+        ('STAGING_JOB', 'Staging runtime assets to execution system'),
+        ('SUBMITTING_JOB', 'Submitting job to execution system'),
+        ('QUEUED', 'Job queued to execution system queue'),
+        ('RUNNING', 'Job running on execution system'),
+        ('ARCHIVING', 'Transferring job output to archive system'),
+        ('BLOCKED', 'Job blocked'),
+        ('PAUSED', 'Job processing suspended'),
+        ('FINISHING', 'Getting job output files'),
+        ('FINISHED', 'Job completed successfully'),
+        ('CANCELLED', 'Job execution intentionally stopped'),
+        ('FAILED', 'Job failed'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, null=True, blank=True)
+    appId = models.CharField(max_length=255)
+    uuid = models.CharField(max_length=40, unique=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    primary = models.BooleanField(default=False)
+    chosen_name = models.CharField(max_length=255, default='')
+
+    def __str__(self):
+        return f"Job {self.uuid} - {self.status}"
+
 class PronameFilterJobDetail(models.Model):
     DATA_TYPES = [
         ('simplex', 'simplex'),
@@ -341,6 +372,7 @@ class PronameFilterJobDetail(models.Model):
         ('both', 'both')
     ]
     job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_filter_detail")
+    proname_import_job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="filter_jobs")
     data_type = models.CharField(max_length=8, choices=DATA_TYPES, default='simplex')
     filt_min_length = models.PositiveIntegerField(default=1)
     filt_max_length = models.PositiveIntegerField(default=5000)
@@ -427,6 +459,7 @@ class PronameRefineJobDetail(models.Model):
     ]
     MEDAKA_MODELS = [(m, m) for m in MEDAKA_MODEL_LIST]
     job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="proname_refine_detail")
+    filter_job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="refine_jobs")
     chimera_db = models.CharField(max_length=32, choices=CHIMERA_DBS, default='greengenes2')
     cluster_id = models.DecimalField(max_digits=3, decimal_places=2, validators=[MinValueValidator(0.0), MaxValueValidator(1.0)])
     min_reads_per_cluster = models.PositiveIntegerField(default=2)
@@ -597,38 +630,6 @@ class ProjectDataFile(models.Model):
 
     def __str__(self):
         return f"Project: {self.project}, DataFile: {self.data_file}"
-
-
-class Job(models.Model):
-    STATUS_CHOICES = [
-        ('STARTING', 'System instance booting'),
-        ('FAILED_BOOT', 'System instance booting failed'),
-        ('PENDING', 'Job processing beginning'),
-        ('PROCESSING_INPUTS', 'Identifying input files for staging'),
-        ('STAGING_INPUTS', 'Transferring job input data to execution system'),
-        ('STAGING_JOB', 'Staging runtime assets to execution system'),
-        ('SUBMITTING_JOB', 'Submitting job to execution system'),
-        ('QUEUED', 'Job queued to execution system queue'),
-        ('RUNNING', 'Job running on execution system'),
-        ('ARCHIVING', 'Transferring job output to archive system'),
-        ('BLOCKED', 'Job blocked'),
-        ('PAUSED', 'Job processing suspended'),
-        ('FINISHING', 'Getting job output files'),
-        ('FINISHED', 'Job completed successfully'),
-        ('CANCELLED', 'Job execution intentionally stopped'),
-        ('FAILED', 'Job failed'),
-    ]
-
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    project = models.ForeignKey(Project, on_delete=models.CASCADE, null=True, blank=True)
-    appId = models.CharField(max_length=255)
-    uuid = models.CharField(max_length=40, unique=True)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
-    primary = models.BooleanField(default=False)
-    chosen_name = models.CharField(max_length=255, default='')
-
-    def __str__(self):
-        return f"Job {self.uuid} - {self.status}"
 
 class RarefactionJobDetail(models.Model):
     job = models.OneToOneField("Job", on_delete=models.CASCADE, related_name="rarefaction_detail")
