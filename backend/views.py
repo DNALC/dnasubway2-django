@@ -1297,7 +1297,7 @@ def project_info(request):
             for job in dada2_jobs:
                 job_data = {
                     "id": job.id,
-                    "name": job.name,
+                    "name": job.chosen_name,
                     "status": job.status,
                     "primary": job.primary,
                 }
@@ -1346,7 +1346,7 @@ def project_info(request):
             for job in rarefaction_jobs:
                 job_data = {
                     "id": job.id,
-                    "name": job.name,
+                    "name": job.chosen_name,
                     "status": job.status,
                 }
 
@@ -1377,7 +1377,7 @@ def project_info(request):
             for job in coremetrics_jobs:
                 job_data = {
                     "id": job.id,
-                    "name": job.name,
+                    "name": job.chosen_name,
                     "status": job.status,
                     "primary": job.primary,
                 }
@@ -1461,7 +1461,7 @@ def project_info(request):
             for job in ancom_jobs:
                 job_data = {
                     "id": job.id,
-                    "name": job.name,
+                    "name": job.chosen_name,
                     "status": job.status,
                 }
 
@@ -1499,7 +1499,7 @@ def project_info(request):
             for job in proname_import_jobs:
                 job_data = {
                     "id": job.id,
-                    "name": job.name,
+                    "name": job.chosen_name,
                     "status": job.status,
                     "primary": job.primary,
                 }
@@ -1543,7 +1543,7 @@ def project_info(request):
             for job in proname_filter_jobs:
                 job_data = {
                     "id": job.id,
-                    "name": job.name,
+                    "name": job.chosen_name,
                     "status": job.status,
                     "primary": job.primary,
                 }
@@ -1586,7 +1586,7 @@ def project_info(request):
             for job in proname_refine_jobs:
                 job_data = {
                     "id": job.id,
-                    "name": job.name,
+                    "name": job.chosen_name,
                     "status": job.status,
                     "primary": job.primary,
                 }
