@@ -1,4 +1,5 @@
 import os
+import shutil
 from collections import defaultdict
 from datetime import timedelta
 from django.utils import timezone
@@ -75,10 +76,16 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
         exists = default_storage.exists(file_path)
 
         if exists:
+            is_dir = os.path.isdir(file_path)
             try:
-                file_size = default_storage.size(file_path)
+                if is_dir:
+                    file_size = sum(os.path.getsize(os.path.join(dirpath, f))
+                                    for dirpath, _, filenames in os.walk(file_path)
+                                    for f in filenames)
+                else:
+                    file_size = default_storage.size(file_path)
             except Exception:
-                file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+                file_size = 0
 
             total_bytes += file_size
             total_files += 1
@@ -88,7 +95,10 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
                 if stdout:
                     stdout.write(f"[DRY RUN] Would delete: {file_path} ({size_kb:.2f} KB)")
             else:
-                default_storage.delete(file_path)
+                if is_dir:
+                    shutil.rmtree(file_path)
+                else:
+                    default_storage.delete(file_path)
                 if stdout:
                     stdout.write(f"Deleted: {file_path}")
             return True
