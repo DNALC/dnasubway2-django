@@ -399,7 +399,7 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
             maybe_delete_and_collect(ar, field, getattr(ar, field))
 
     if not dry_run:
-        BATCH_SIZE = 1000
+        BATCH_SIZE = 500
         for model_class, fields in updates_to_perform.items():
             for field_name, ids in fields.items():
                 if not ids:
