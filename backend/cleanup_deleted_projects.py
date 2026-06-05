@@ -172,6 +172,7 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
             ProjectNanoporeSequence.objects
             .select_related("project")
             .filter(nanopore_sequence=seq)
+        )
 
         deleted_links = any(l.project.deleted for l in proj_links)
         active_links = any(not l.project.deleted for l in proj_links)
