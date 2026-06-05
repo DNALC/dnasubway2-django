@@ -50,10 +50,20 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
     def maybe_delete(file_field):
         nonlocal total_bytes, total_files
 
-        if not file_field or not file_field.name:
+        if not file_field:
             return False
 
-        file_path = getattr(file_field, "path", None)
+        if hasattr(file_field, 'path'):
+            file_path = file_field.path
+        # If it's a string, it's already the path
+        elif isinstance(file_field, str):
+            file_path = file_field
+        # If it has a .name attribute (standard FileField), use it to resolve path
+        elif hasattr(file_field, 'name') and file_field.name:
+            file_path = default_storage.path(file_field.name)
+        else:
+            return False
+
         if not file_path:
             return False
 
