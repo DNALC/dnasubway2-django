@@ -23,6 +23,17 @@ from .models import (
     FastpResult,
     PorechopResult,
     MedakaResult,
+    Dada2Result,
+    PodFile,
+    JobPodFile,
+    PronameImportResult,
+    PronameFilterResult,
+    PronameRefineResult,
+    PronameTaxonomyResult,
+    RarefactionResult,
+    CoreMetricsResult,
+    GneissResult,
+    AncomResult,
 )
 
 User = get_user_model()
@@ -260,6 +271,113 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
             maybe_delete(mr.fasta_file)
             maybe_delete(mr.fasta_file_medaka_headers)
             maybe_delete(mr.medaka_output_dir)
+
+        # ---- STEP 12: PodFile (Shared user repository file via Job links) ----
+        pod_qs = PodFile.objects.filter(jobpodfile__job__project__deleted=True).distinct()
+        for pf in list(pod_qs):
+            # Safe boundary check: make sure it isn't linked to any active project jobs
+            has_active_links = JobPodFile.objects.filter(podfile=pf, job__project__deleted=False).exists()
+            if not has_active_links:
+                maybe_delete(pf.file)
+
+        # ---- STEP 13: Dada2Result ----
+        dada2_qs = Dada2Result.objects.select_related("job__project").filter(job__project__deleted=True)
+        for dr in list(dada2_qs):
+            maybe_delete(dr.rooted_tree_qza)
+            maybe_delete(dr.trim_table_qza)
+            maybe_delete(dr.rep_seqs_qza)
+            maybe_delete(dr.stats_qzv)
+            maybe_delete(dr.rep_seqs_qzv)
+            maybe_delete(dr.trim_table_qzv)
+            maybe_delete(dr.log_file)
+
+        # ---- STEP 14: PronameImportResult ----
+        p_import_qs = PronameImportResult.objects.select_related("job__project").filter(job__project__deleted=True)
+        for pir in list(p_import_qs):
+            maybe_delete(pir.duplex_plot)
+            maybe_delete(pir.simplex_plot)
+            maybe_delete(pir.dual_plot)
+            maybe_delete(pir.simplex_distribution)
+            maybe_delete(pir.duplex_distribution)
+            maybe_delete(pir.dual_distribution)
+            maybe_delete(pir.simplex_reads)
+            maybe_delete(pir.duplex_reads)
+            maybe_delete(pir.dual_reads)
+
+        # ---- STEP 15: PronameFilterResult ----
+        p_filter_qs = PronameFilterResult.objects.select_related("job__project").filter(job__project__deleted=True)
+        for pfr in list(p_filter_qs):
+            maybe_delete(pfr.duplex_plot)
+            maybe_delete(pfr.simplex_plot)
+            maybe_delete(pfr.dual_plot)
+            maybe_delete(pfr.simplex_distribution)
+            maybe_delete(pfr.duplex_distribution)
+            maybe_delete(pfr.dual_distribution)
+            maybe_delete(pfr.simplex_reads)
+            maybe_delete(pfr.duplex_reads)
+            maybe_delete(pfr.dual_reads)
+
+        # ---- STEP 16: PronameRefineResult ----
+        p_refine_qs = PronameRefineResult.objects.select_related("job__project").filter(job__project__deleted=True)
+        for prr in list(p_refine_qs):
+            maybe_delete(prr.rep_seqs_qza)
+            maybe_delete(prr.trim_table_qza)
+            maybe_delete(prr.rep_seqs_fasta)
+            maybe_delete(prr.rep_table_tsv)
+            maybe_delete(prr.rooted_tree_qza)
+            maybe_delete(prr.rep_seqs_qzv)
+            maybe_delete(prr.trim_table_qzv)
+
+        # ---- STEP 17: PronameTaxonomyResult ----
+        p_tax_qs = PronameTaxonomyResult.objects.select_related("job__project").filter(job__project__deleted=True)
+        for ptr in list(p_tax_qs):
+            maybe_delete(ptr.rooted_tree_qza)
+            maybe_delete(ptr.taxonomy_qza)
+            maybe_delete(ptr.taxa_bar_plots)
+
+        # ---- STEP 18: RarefactionResult ----
+        rarefaction_qs = RarefactionResult.objects.select_related("job__project").filter(job__project__deleted=True)
+        for rr in list(rarefaction_qs):
+            maybe_delete(rr.alpha_rarefaction_qzv)
+            maybe_delete(rr.log_file)
+
+        # ---- STEP 19: CoreMetricsResult ----
+        core_qs = CoreMetricsResult.objects.select_related("job__project").filter(job__project__deleted=True)
+        for cmr in list(core_qs):
+            maybe_delete(cmr.taxonomy_qza)
+            maybe_delete(cmr.bray_curtis_bioenv)
+            maybe_delete(cmr.bray_curtis_emperor)
+            maybe_delete(cmr.evenness_correlation)
+            maybe_delete(cmr.evenness_group_significance)
+            maybe_delete(cmr.evenness_raincloud)
+            maybe_delete(cmr.faith_pd_correlation)
+            maybe_delete(cmr.faith_pd_group_significance)
+            maybe_delete(cmr.faith_pd_raincloud)
+            maybe_delete(cmr.observed_features_correlation)
+            maybe_delete(cmr.observed_features_group_significance)
+            maybe_delete(cmr.observed_features_raincloud)
+            maybe_delete(cmr.shannon_correlation)
+            maybe_delete(cmr.shannon_group_significance)
+            maybe_delete(cmr.shannon_raincloud)
+            maybe_delete(cmr.jaccard_emperor)
+            maybe_delete(cmr.taxa_bar_plots)
+            maybe_delete(cmr.taxonomy_qzv)
+            maybe_delete(cmr.unweighted_unifrac_bioenv)
+            maybe_delete(cmr.unweighted_unifrac_emperor)
+            maybe_delete(cmr.weighted_unifrac_emperor)
+
+        # ---- STEP 20: GneissResult ----
+        gneiss_qs = GneissResult.objects.select_related("job__project").filter(job__project__deleted=True)
+        for gr in list(gneiss_qs):
+            maybe_delete(gr.heatmap)
+
+        # ---- STEP 21: AncomResult ----
+        ancom_qs = AncomResult.objects.select_related("job__project").filter(job__project__deleted=True)
+        for ar in list(ancom_qs):
+            maybe_delete(ar.heatmap)
+            maybe_delete(ar.abundance_barplot)
+            maybe_delete(ar.ancom)
+            maybe_delete(ar.differentials)
 
     total_mb = total_bytes / 1_000_000
     total_gb = total_bytes / 1_000_000_000
