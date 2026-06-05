@@ -171,14 +171,7 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
         proj_links = list(
             ProjectNanoporeSequence.objects
             .select_related("project")
-            .filter(nanopore_sequence=seq)    if not dry_run:
-        for model_class, fields in updates_to_perform.items():
-            for field_name, ids in fields.items():
-                if ids:
-                    model_class.objects.filter(id__in=ids).update(**{field_name: ''})
-                    if stdout:
-                        stdout.write(f"Cleared {len(ids)} references for {model_class.__name__}.{field_name}")
-        )
+            .filter(nanopore_sequence=seq)
 
         deleted_links = any(l.project.deleted for l in proj_links)
         active_links = any(not l.project.deleted for l in proj_links)
