@@ -1,5 +1,5 @@
 import os
-from datetime import date
+from datetime import timedelta
 from django.utils import timezone
 from django.core.files.storage import default_storage
 from django.contrib.auth import get_user_model
@@ -37,10 +37,11 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
     def maybe_delete(file_field):
         nonlocal total_bytes, total_files
 
-        if not file_field:
+        if not file_field or not file_field.name:
             return
+
         file_path = getattr(file_field, "path", None)
-        if not file_path or not default_storage.exists(file_path):
+        if not file_path:
             return
 
         # Use os.path to check if file is in 'sample' or 'reference' directories
@@ -48,38 +49,54 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
         if "sample" in parts or "reference" in parts:
             return
 
-        try:
-            file_size = default_storage.size(file_path)
-        except Exception:
-            file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        exists = default_storage.exists(file_path)
 
-        total_bytes += file_size
-        total_files += 1
+        if exists:
+            try:
+                file_size = default_storage.size(file_path)
+            except Exception:
+                file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
 
-        size_kb = file_size / 1_000
-        if dry_run:
-            if stdout:
-                stdout.write(f"[DRY RUN] Would delete: {file_path} ({size_kb:.2f} KB)")
-        else:
-            default_storage.delete(file_path)
-            if stdout:
-                stdout.write(f"Deleted: {file_path}")
+            total_bytes += file_size
+            total_files += 1
+
+            size_kb = file_size / 1_000
+            if dry_run:
+                if stdout:
+                    stdout.write(f"[DRY RUN] Would delete: {file_path} ({size_kb:.2f} KB)")
+            else:
+                default_storage.delete(file_path)
+                if stdout:
+                    stdout.write(f"Deleted: {file_path}")
+
+        # 2. Clear the database field so we NEVER check this file again
+        if not dry_run:
+            file_field.name = ''
+            try:
+                # Update only this specific field to avoid race conditions
+                file_field.instance.save(update_fields=[file_field.field.name])
+            except ValueError:
+                file_field.instance.save()
 
     # ---- STEP 1: Mark guest projects as deleted (except created today) ----
     today = timezone.localdate()
+    yesterday = timezone.now() - timedelta(days=1)
 
-    guest_projects = Project.objects.filter(
-        user__username__startswith="guest_"
+    # 3. Optimize the update: Only target guests who are inactive AND not already deleted
+    guest_projects_to_mark = Project.objects.filter(
+        user__username__startswith="guest_",
+        deleted=False
+    ).exclude(
+        created__date=today
+    ).filter(
+        user__last_login__lt=yesterday
     )
-
-    guest_projects_to_mark = guest_projects.exclude(created__date=today)
 
     count = guest_projects_to_mark.update(deleted=True)
 
     if stdout:
         stdout.write(
-            f"Marked {count} guest projects as deleted "
-            f"(excluding those created today: {guest_projects.count() - count}).\n"
+            f"Marked {count} guest projects as deleted.\n"
         )
 
     # --------------------------------------------------
