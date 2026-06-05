@@ -86,7 +86,7 @@ def mark_inactive_user_projects_deleted(dry_run=True, days=180, stdout=None):
             threshold_date = today - timedelta(days=inactive_days)
             users_to_notify = standard_users.filter(last_login__date=threshold_date)
             if trigger_day == 0:
-                users_to_notify |= legacy_users
+                users_to_notify |= legacy_users.filter(last_login__date__lte=threshold_date)
             for user in users_to_notify.iterator():
                 if not user.email:
                     continue
@@ -103,7 +103,9 @@ def mark_inactive_user_projects_deleted(dry_run=True, days=180, stdout=None):
     # --------------------------------------------------
     if days_since_start >= 30:
         cutoff_date = today - timedelta(days=days)
-        eligible = standard_users.filter(last_login__date__lte=cutoff_date) | legacy_users
+        eligible_standard = standard_users.filter(last_login__date__lte=cutoff_date)
+        eligible_legacy = legacy_users.filter(last_login__date__lte=cutoff_date)
+        eligible = eligible_standard | eligible_legacy
         projects_to_update = Project.objects.filter(
             user__in=eligible,
             deleted=False
