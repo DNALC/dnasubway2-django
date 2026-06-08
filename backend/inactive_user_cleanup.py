@@ -71,7 +71,7 @@ def mark_inactive_user_projects_deleted(dry_run=True, days=180, current_date=Non
     if current_date is None:
         today = real_today
     elif isinstance(current_date, str):
-        today = date.fromisoformat(current_date)
+        today = datetime.strptime(current_date, "%Y-%m-%d").date()
     else:
         today = current_date
     # Policy Enforcement Rollout Date
