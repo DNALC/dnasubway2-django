@@ -202,6 +202,11 @@ class Project(models.Model):
         ('paired', 'Paired-End Reads'),
     ]
     read_type = models.CharField(max_length=8, choices=READ_TYPES, default='single')
+    ANNOTATION_TYPES = [
+        ('main_genome', 'Main Genome'),
+        ('plasmid', 'Plasmid'),
+    ]
+    annotation_type = models.CharField(max_length=16, choices=ANNOTATION_TYPES, default='main_genome')
     public = models.BooleanField(default=False)
     deleted = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
