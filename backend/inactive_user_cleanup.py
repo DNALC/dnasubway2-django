@@ -78,6 +78,9 @@ def mark_inactive_user_projects_deleted(dry_run=True, days=180, current_date=Non
     POLICY_START_DATE = date(2026, 6, 5)
     days_since_start = (today - POLICY_START_DATE).days
 
+    # The dividing line: Anyone who was already inactive for 150+ days on rollout day (Jan 6, 2026)
+    BULK_LEGACY_CUTOFF = POLICY_START_DATE - timedelta(days=150)
+
     base_users = User.objects.exclude(username__startswith="guest_").exclude(
         is_staff=True
     ).exclude(is_superuser=True)
@@ -96,13 +99,18 @@ def mark_inactive_user_projects_deleted(dry_run=True, days=180, current_date=Non
     for inactive_days, _, legacy_trigger_day in schedules:
         threshold_date = today - timedelta(days=inactive_days)
         
-        # 1. Rolling Cohort Selection based on the simulation timeline
-        users_to_notify = base_users.filter(last_login__date=threshold_date)
+        # 1. Rolling Cohort: Only evaluates users crossing thresholds incrementally.
+        # Excludes legacy users who already blew past the 150-day mark before the policy went live.
+        users_to_notify = base_users.filter(
+            last_login__date=threshold_date,
+            last_login__date__gt=BULK_LEGACY_CUTOFF
+        )
         
         # 2. Legacy Cohort Catch-up based on the simulation timeline
         if days_since_start == legacy_trigger_day:
-            legacy_users = base_users.filter(last_login__date__lt=POLICY_START_DATE)
-            users_to_notify |= legacy_users.filter(last_login__date__lte=threshold_date)
+            legacy_bulk_users = base_users.filter(last_login__date__lte=BULK_LEGACY_CUTOFF)
+            users_to_notify |= legacy_bulk_users
+
         users_to_notify = users_to_notify.distinct()
 
         for user in users_to_notify.iterator():
