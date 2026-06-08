@@ -182,7 +182,7 @@ class Project(models.Model):
     PROJECT_TYPES = [
         ('PHY', 'Phylogenetics'),
         ('NGS', 'Next Generation Sequencing'),
-        ('UB', 'uBiome')
+        ('UB', 'uBiome'),
         ('SGA', 'Small Genome Assembly')
     ]
     project_type = models.CharField(max_length=3, choices=PROJECT_TYPES, default='phylogenetics')
