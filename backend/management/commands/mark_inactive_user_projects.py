@@ -19,13 +19,21 @@ class Command(BaseCommand):
             default=180,
             help="Number of days of inactivity to trigger deletion (default: 180).",
         )
+        parser.add_argument(
+            "--current-date",
+            type=str,
+            default=None,
+            help="Simulate running the script on a specific date (Format: YYYY-MM-DD).",
+        )
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
         days = options["days"]
+        current_date = options["current_date"]
         
         mark_inactive_user_projects_deleted(
             dry_run=dry_run, 
             days=days, 
+            current_date=current_date,
             stdout=self.stdout
         )

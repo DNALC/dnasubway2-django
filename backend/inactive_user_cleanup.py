@@ -63,8 +63,17 @@ def send_warning_email(user, days_remaining, stdout=None):
 
     return True
 
-def mark_inactive_user_projects_deleted(dry_run=True, days=180, stdout=None):
-    today = timezone.localdate()
+def mark_inactive_user_projects_deleted(dry_run=True, days=180, current_date=None, stdout=None):
+    # Track the actual calendar day for accurate email notifications
+    real_today = timezone.localdate()
+
+    # Handle the simulation date parameter for cohort matching
+    if current_date is None:
+        today = real_today
+    elif isinstance(current_date, str):
+        today = date.fromisoformat(current_date)
+    else:
+        today = current_date
     # Policy Enforcement Rollout Date
     POLICY_START_DATE = date(2026, 6, 5)
     days_since_start = (today - POLICY_START_DATE).days
@@ -73,39 +82,62 @@ def mark_inactive_user_projects_deleted(dry_run=True, days=180, stdout=None):
         is_staff=True
     ).exclude(is_superuser=True)
 
-    standard_users = base_users.filter(last_login__date__gte=POLICY_START_DATE)
-    legacy_users = base_users.filter(last_login__date__lt=POLICY_START_DATE)
-
+    # schedules setup: (inactive_days, days_left, bulk_catchup_trigger_day)
     schedules = [(150, 30, 0), (173, 7, 23), (179, 1, 29)]
+
     if stdout:
         action = "Listing" if dry_run else "Processing"
         stdout.write(f"--- {action} inactive registered user notifications and project cleanup ---\n")
+        stdout.write(f"    [Simulation Date: {today} | Real-World Date: {real_today}]\n\n")
 
-    for inactive_days, days_left, trigger_day in schedules:
-        if days_since_start == trigger_day:
-            threshold_date = today - timedelta(days=inactive_days)
-            users_to_notify = standard_users.filter(last_login__date=threshold_date)
-            if trigger_day == 0:
-                users_to_notify |= legacy_users.filter(last_login__date__lte=threshold_date)
-            for user in users_to_notify.iterator():
-                if not user.email:
-                    continue
-                if dry_run:
-                    if stdout:
-                        stdout.write(f"[DRY RUN] Would send {days_left}-day warning email to {user.email} (Last login: {user.last_login.date()})\n")
-                else:
-                    success = send_warning_email(user, days_left, stdout=stdout)
-                    if success and stdout:
-                        stdout.write(f"Sent {days_left}-day warning email to {user.email}\n")
+    # --------------------------------------------------
+    # STEP 1 & 2: Process Notifications (Rolling + Bulk Legacy Catch-up)
+    # --------------------------------------------------
+    for inactive_days, _, legacy_trigger_day in schedules:
+        threshold_date = today - timedelta(days=inactive_days)
+        
+        # 1. Rolling Cohort Selection based on the simulation timeline
+        users_to_notify = base_users.filter(last_login__date=threshold_date)
+        
+        # 2. Legacy Cohort Catch-up based on the simulation timeline
+        if days_since_start == legacy_trigger_day:
+            legacy_users = base_users.filter(last_login__date__lt=POLICY_START_DATE)
+            users_to_notify |= legacy_users.filter(last_login__date__lte=threshold_date)
+        users_to_notify = users_to_notify.distinct()
+
+        for user in users_to_notify.iterator():
+            if not user.email:
+                continue
+            # --- DYNAMIC RE-CALCULATION BASED ON THE REAL TODAY ---
+            # Standard deletion timeline is 180 days after last login
+            standard_deletion_date = user.last_login.date() + timedelta(days=days)
+            # Safety rule: No legacy projects are deleted before Day 30 of the rollout
+            earliest_deletion_date = POLICY_START_DATE + timedelta(days=30)
+            
+            actual_deletion_date = max(standard_deletion_date, earliest_deletion_date)
+            
+            # Get remaining days relative to the REAL world calendar day
+            dynamic_days_left = (actual_deletion_date - real_today).days
+
+            # Safeguard: If the script is run late and they are past threshold, default to 1 day notice
+            if dynamic_days_left < 1:
+                dynamic_days_left = 1
+
+            if dry_run:
+                if stdout:
+                    stdout.write(f"[DRY RUN] Would send {dynamic_days_left}-day warning email to {user.email} (Last login: {user.last_login.date()})\n")
+            else:
+                success = send_warning_email(user, dynamic_days_left, stdout=stdout)
+                if success and stdout:
+                    stdout.write(f"Sent {dynamic_days_left}-day warning email to {user.email}\n")
 
     # --------------------------------------------------
     # STEP 3: Handle Project Soft-Deletions (180+ Days)
     # --------------------------------------------------
     if days_since_start >= 30:
         cutoff_date = today - timedelta(days=days)
-        eligible_standard = standard_users.filter(last_login__date__lte=cutoff_date)
-        eligible_legacy = legacy_users.filter(last_login__date__lte=cutoff_date)
-        eligible = eligible_standard | eligible_legacy
+        eligible = base_users.filter(last_login__date__lte=cutoff_date)
+        
         projects_to_update = Project.objects.filter(
             user__in=eligible,
             deleted=False
@@ -115,9 +147,9 @@ def mark_inactive_user_projects_deleted(dry_run=True, days=180, stdout=None):
             total_users = eligible.count()
             total_projects = projects_to_update.count()
             if stdout:
-                stdout.write(f"[DRY RUN] Found {total_users} users past deletion threshold (excluding protected legacy users).\n")
+                stdout.write(f"\n[DRY RUN] Found {total_users} users past deletion threshold.\n")
                 stdout.write(f"[DRY RUN] Would mark {total_projects} active projects as deleted.\n")
         else:
             updated_count = projects_to_update.update(deleted=True)
             if stdout:
-                stdout.write(f"Successfully marked {updated_count} projects as deleted.\n")
+                stdout.write(f"\nSuccessfully marked {updated_count} projects as deleted.\n")
