@@ -104,6 +104,7 @@ class TutorialSettings(models.Model):
     disable_phy_tutorial = models.BooleanField(default=False)
     disable_ngs_tutorial = models.BooleanField(default=False)
     disable_ub_tutorial = models.BooleanField(default=False)
+    disable_sga_tutorial = models.BooleanField(default=False)
     disable_nanopore_phy_tutorial = models.BooleanField(default=False)
 
     def is_disabled(self, project):
@@ -122,6 +123,7 @@ class TutorialSettings(models.Model):
             'PHY': 'disable_phy_tutorial',
             'NGS': 'disable_ngs_tutorial',
             'UB': 'disable_ub_tutorial',
+            'SGA': 'disable_sga_tutorial',
         }.get(project.project_type)
 
 class PasswordResetToken(models.Model):
@@ -181,6 +183,7 @@ class Project(models.Model):
         ('PHY', 'Phylogenetics'),
         ('NGS', 'Next Generation Sequencing'),
         ('UB', 'uBiome')
+        ('SGA', 'Small Genome Assembly')
     ]
     project_type = models.CharField(max_length=3, choices=PROJECT_TYPES, default='phylogenetics')
     BARCODE_TYPES = [
