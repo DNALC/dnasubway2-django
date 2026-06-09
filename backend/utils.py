@@ -2356,7 +2356,11 @@ def get_sampling_depth_guardrails(qza_path):
                     crash_limit = counts[2]
                     suggested = min(crash_limit, default_suggested)
                     suggested = max(suggested, min_depth)
-                    return min_depth, suggested, crash_limit
+                    return (
+                      min(min_depth, default_max),
+                      min(suggested, default_max),
+                      min(crash_limit, default_max),
+                    )
 
     except Exception:
         return default_min, default_suggested, default_max
