@@ -2357,7 +2357,7 @@ def get_sampling_depth_guardrails(qza_path):
                     suggested = min(crash_limit, default_suggested)
                     suggested = max(suggested, min_depth)
                     return (
-                      min(min_depth, default_max),
+                      default_min,
                       min(suggested, default_max),
                       min(crash_limit, default_max),
                     )
