@@ -248,7 +248,11 @@ def run_medaka_task(project_nanopore_sequence_id, reference_fasta_path=None, inp
                 nanopore_seq_id=project_nanopore_sequence.nanopore_sequence,
             )
             new_filename = f"{data_file.id}.fasta"
-            header = re.sub(r'\W+', '_', data_file.name)
+            if reference_fasta_path:
+                header = record.id.split()[0]
+            else:
+                header = re.sub(r'\W+', '_', data_file.name)
+
             fasta_content = ContentFile(f">{header}\n{data_file.reads}\n")
             new_fasta_file_path = default_storage.save(f"fasta_files/{new_filename}", fasta_content)
             data_file.associated_fasta.name = new_fasta_file_path
