@@ -185,6 +185,17 @@ def run_medaka_task(project_nanopore_sequence_id, reference_fasta_path=None, inp
 
             consensus_fasta_path = os.path.join(medaka_output_dir, 'consensus.fasta')
             max_bam_path = os.path.join(medaka_output_dir, 'calls_to_draft.bam')
+            if os.path.exists(consensus_fasta_path):
+                records = list(SeqIO.parse(consensus_fasta_path, "fasta"))
+                if len(records) == 1:
+                    record = records[0]
+                    if record.id.endswith("_0"):
+                        clean_id = record.id.split("_0")[0]
+                        record.id = clean_id
+                        record.name = clean_id
+                        record.description = clean_id
+                        SeqIO.write(record, consensus_fasta_path, "fasta")
+
 
             if os.path.exists(max_bam_path):
                 subprocess.run(f"samtools index {max_bam_path}", shell=True, check=True)
@@ -248,10 +259,7 @@ def run_medaka_task(project_nanopore_sequence_id, reference_fasta_path=None, inp
                 nanopore_seq_id=project_nanopore_sequence.nanopore_sequence,
             )
             new_filename = f"{data_file.id}.fasta"
-            if reference_fasta_path:
-                header = record.id.split()[0]
-            else:
-                header = re.sub(r'\W+', '_', data_file.name)
+            header = re.sub(r'\W+', '_', data_file.name)
 
             fasta_content = ContentFile(f">{header}\n{data_file.reads}\n")
             new_fasta_file_path = default_storage.save(f"fasta_files/{new_filename}", fasta_content)
