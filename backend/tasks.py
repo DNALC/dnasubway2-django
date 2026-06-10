@@ -180,7 +180,7 @@ def run_medaka_task(project_nanopore_sequence_id, reference_fasta_path=None, inp
 
         if reference_fasta_path:
             # --- Reference-Based Approach ---
-            command = f"medaka_consensus -i {input_file_path} -d {reference_fasta_path} -o {medaka_output_dir}"
+            command = f"medaka_consensus -i {input_file_path} -d {reference_fasta_path} -g -o {medaka_output_dir}"
             subprocess.run(command, shell=True, check=True)
 
             consensus_fasta_path = os.path.join(medaka_output_dir, 'consensus.fasta')
