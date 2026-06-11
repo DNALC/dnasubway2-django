@@ -868,6 +868,20 @@ class FastpJob(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     status = models.CharField(max_length=20, choices=(('queued', 'Queued'), ('completed', 'Completed'), ('failed', 'Failed')), default='queued')
+    reads_to_process = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(10000)])
+    qualified_quality_phred = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(40)])
+    average_qual = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(40)])
+    length_required = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(500)])
+    length_limit = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(5000)])
+    report_title = models.CharField(max_length=64, null=True, blank=True)
+    adapter_sequence = models.CharField(max_length=50, null=True, blank=True)
+    adapter_fasta = models.ForeignKey(
+        DataFile,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='fastp_adapter_jobs'
+    )
 
     #class Meta:
     #    unique_together = ('nanopore_sequence', 'project')

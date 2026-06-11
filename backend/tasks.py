@@ -17,16 +17,22 @@ from django.conf import settings
 import tempfile
 
 @shared_task
-def run_fastp_task(fastp_job_id, reads_to_process, qualified_quality_phred, length_required, length_limit, report_title, average_qual, adapter):
-    # Retrieve the FastpJob
-    fastp_job = FastpJob.objects.get(id=fastp_job_id)
-    project_nanopore_sequence = ProjectNanoporeSequence.objects.get(
-        nanopore_sequence=fastp_job.nanopore_sequence,
-        project=fastp_job.project
-    )
+def run_fastp_task(fastp_job_id):
+    try:
+        # 1. Retrieve the FastpJob and update status to running
+        fastp_job = FastpJob.objects.get(id=fastp_job_id)
+
+        # Get the relationship link
+        project_nanopore_sequence = ProjectNanoporeSequence.objects.get(
+            nanopore_sequence_id=fastp_job.nanopore_sequence_id,
+            project_id=fastp_job.project_id
+        )
+    except (FastpJob.DoesNotExist, ProjectNanoporeSequence.DoesNotExist) as e:
+        # Handle cases where records were deleted before the task executed
+        return f"Job failed to initialize: {str(e)}"
 
     nanopore_sequence_file = project_nanopore_sequence.nanopore_sequence.file.path
-    report_title = report_title or project_nanopore_sequence.nanopore_sequence.name
+    report_title = fastp_job.report_title or project_nanopore_sequence.nanopore_sequence.name
 
     # Use the ID of the ProjectNanoporeSequence for unique filenames
     file_base_name = str(project_nanopore_sequence.id)
@@ -48,36 +54,42 @@ def run_fastp_task(fastp_job_id, reads_to_process, qualified_quality_phred, leng
         '-h', html_file,
         '-R', report_title,
     ]
-    if reads_to_process is not None:
-        fastp_command.extend(['--reads_to_process', str(reads_to_process)])
+    if fastp_job.reads_to_process is not None:
+        fastp_command.extend(['--reads_to_process', str(fastp_job.reads_to_process)])
 
-    if qualified_quality_phred is not None:
-        fastp_command.extend(['-q', str(qualified_quality_phred)])
+    if fastp_job.qualified_quality_phred is not None:
+        fastp_command.extend(['-q', str(fastp_job.qualified_quality_phred)])
 
-    if average_qual is not None:
-        fastp_command.extend(['-e', str(average_qual)])
+    if fastp_job.average_qual is not None:
+        fastp_command.extend(['-e', str(fastp_job.average_qual)])
 
-    if length_required is not None:
-        fastp_command.extend(['-l', str(length_required)])
+    if fastp_job.length_required is not None:
+        fastp_command.extend(['-l', str(fastp_job.length_required)])
 
-    if length_limit is not None:
-        fastp_command.extend(['--length_limit', str(length_limit)])
+    if fastp_job.length_limit is not None:
+        fastp_command.extend(['--length_limit', str(fastp_job.length_limit)])
 
-    tmp_path = None
+    tmp_fasta_path = None
+    local_fasta_path = None
+    fasta_path = None
 
-    if adapter is not None:
-        # If it's a raw sequence string
-        if re.fullmatch(r'[ACTG]{15,40}', adapter, re.IGNORECASE):
-            fastp_command.extend(["--adapter_sequence", adapter.upper()])
-        # If it's a raw FASTA format string
-        elif adapter.startswith(">"):
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.fasta', delete=False) as tmp:
-                tmp.write(adapter)
-                tmp_path = tmp.name
-            try:
-                fastp_command.extend(["--adapter_fasta", tmp_path])
-            except:
-                pass
+    if fastp_job.adapter_sequence:
+        fastp_command.extend(["--adapter_sequence", fastp_job.adapter_sequence])
+
+    elif fastp_job.adapter_fasta:
+        try:
+            # If storage is local, we can read the path directly
+            local_fasta_path = fastp_job.adapter_fasta.associated_fasta.path
+            fasta_path = local_fasta_path
+        except NotImplementedError:
+            # If using remote storage, download to a local temporary file
+            with tempfile.NamedTemporaryFile(mode='wb', suffix='.fasta', delete=False) as tmp:
+                with default_storage.open(fastp_job.adapter_fasta.associated_fasta.name, 'rb') as f:
+                    tmp.write(f.read())
+                tmp_fasta_path = tmp.name
+                fasta_path = tmp_fasta_path
+
+        fastp_command.extend(["--adapter_fasta", fasta_path])
 
     try:
         subprocess.run(fastp_command, check=True)
@@ -99,9 +111,9 @@ def run_fastp_task(fastp_job_id, reads_to_process, qualified_quality_phred, leng
         fastp_job.status = 'failed'
         fastp_job.save()
     finally:
-        if tmp_path and os.path.exists(tmp_path):
+        if tmp_fasta_path:
             try:
-                os.remove(tmp_path)
+                os.remove(tmp_fasta_path)
             except OSError:
                 pass
 

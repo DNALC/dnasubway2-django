@@ -2577,6 +2577,33 @@ def submit_fastp_job(request):
                 status=400
             )
 
+    if report_title:
+        report_title = str(report_title)[:64] # Limit to max 64 characters
+
+    adapter_sequence = None
+    fasta_name = None
+    fasta_reads = None
+    is_fasta_adapter = False
+
+    if adapter:
+        adapter = adapter.strip()
+        if adapter.startswith('>'):
+            try:
+                record = SeqIO.read(io.StringIO(adapter), "fasta")
+                fasta_name = record.id
+                fasta_reads = str(record.seq)
+                is_fasta_adapter = True
+            except ValueError:
+                return JsonResponse({'error': 'FASTA adapter must contain exactly one sequence.'}, status=400)
+            except Exception as e:
+                return JsonResponse({'error': f'Error parsing FASTA: {str(e)}'}, status=400)
+        else:
+            adapter_upper = adapter.upper()
+            if 15 <= len(adapter_upper) <= 50 and re.fullmatch(r'[ACTG]+', adapter_upper):
+                adapter_sequence = adapter_upper
+            else:
+                return JsonResponse({'error': 'Adapter sequence must be 15-50 chars and contain only A, C, T, G.'}, status=400)
+
     # Normalize to a list if a single ID is provided
     if isinstance(nanopore_sequence_ids, int):
         nanopore_sequence_ids = [nanopore_sequence_ids]
@@ -2585,26 +2612,70 @@ def submit_fastp_job(request):
     jobs_created = []
     already_existing_jobs = []
 
+    adapter_fasta_file = None
+    if is_fasta_adapter:
+        adapter_fasta_file = DataFile.objects.filter(name=fasta_name, reads=fasta_reads).first()
+
     for nanopore_sequence_id in nanopore_sequence_ids:
         # Get the ProjectNanoporeSequence for the given nanopore sequence and project
         project_nanopore_sequence = get_object_or_404(ProjectNanoporeSequence,
                                                       project=project,
                                                       nanopore_sequence_id=nanopore_sequence_id)
+        job_filters = {
+            'nanopore_sequence_id': nanopore_sequence_id,
+            'project_id': project.id,
+            'reads_to_process': reads_to_process,
+            'qualified_quality_phred': qualified_quality_phred,
+            'average_qual': average_qual,
+            'length_required': length_required,
+            'length_limit': length_limit,
+            'report_title': report_title,
+        }
+
+        if is_fasta_adapter:
+            existing_job = FastpJob.objects.filter(
+                **job_filters,
+                adapter_sequence=None,
+                adapter_fasta__name=fasta_name,
+                adapter_fasta__reads=fasta_reads
+            ).exclude(status='failed').first()
+        else:
+            existing_job = FastpJob.objects.filter(
+                **job_filters,
+                adapter_sequence=adapter_sequence,
+                adapter_fasta=None
+            ).exclude(status='failed').first()
 
         # Check if a FastpJob already exists for this sequence and project
-        existing_job = FastpJob.objects.filter(nanopore_sequence_id=nanopore_sequence_id, project_id=project.id).exclude(status='failed').first()
         if existing_job:
             already_existing_jobs.append(nanopore_sequence_id)
             continue
 
+        if is_fasta_adapter and not adapter_fasta_file:
+            data_file = DataFile.objects.create(
+                user=request.user,
+                name=fasta_name,
+                read_type="F",
+                reads=fasta_reads,
+                source="upload",
+            )
+            header = re.sub(r'\s+', '_', data_file.name)
+            fasta_content = ContentFile(f">{header}\n{data_file.reads}\n")
+            fasta_file_name = f"{data_file.id}.fasta"
+            fasta_file_path = default_storage.save(f"fasta_files/{fasta_file_name}", fasta_content)
+            data_file.associated_fasta.name = fasta_file_path
+            data_file.save()
+            adapter_fasta_file = data_file
+
         # Create a new FastpJob
         fastp_job = FastpJob.objects.create(
-            nanopore_sequence_id=nanopore_sequence_id,
-            project_id=project.id
+            **job_filters,
+            adapter_sequence=adapter_sequence,
+            adapter_fasta=adapter_fasta_file
         )
 
         # Queue the fastp task asynchronously with Celery
-        run_fastp_task.delay(fastp_job.id, reads_to_process, qualified_quality_phred, length_required, length_limit, report_title, average_qual, adapter)
+        run_fastp_task.delay(fastp_job.id)
 
         # Track the created job
         jobs_created.append(nanopore_sequence_id)
