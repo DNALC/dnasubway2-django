@@ -1020,7 +1020,7 @@ def project_info(request):
         .prefetch_related(
             Prefetch(
                 'nanopore_sequence__fastpjob_set',
-                queryset=FastpJob.objects.filter(project=project).exclude(status='failed').select_related('adapter_fasta'),
+                queryset=FastpJob.objects.filter(project=project).exclude(status='failed').select_related('adapter_fasta').prefetch_related('fastp_results'),
                 to_attr='related_fastp_jobs'
             ),
             Prefetch(
@@ -1051,8 +1051,10 @@ def project_info(request):
         # Retrieve related FastpResult and FastpJob (if they exist)
         fastp_result = FastpResult.objects.filter(project_nanopore_sequence=pns).first()
         fastp_jobs = getattr(nanopore_sequence, 'related_fastp_jobs', [])
-        fastp_runs_dict = {
-            job.id: {
+        fastp_runs_dict = {}
+        for job in fastp_jobs:
+            job_result = next(iter(job.fastp_results.all()), None)
+            fastp_runs_dict[job.id] = {
                 'status': job.status,
                 'reads_to_process': job.reads_to_process,
                 'qualified_quality_phred': job.qualified_quality_phred,
@@ -1064,10 +1066,15 @@ def project_info(request):
                 'adapter_fasta': {
                     'id': job.adapter_fasta.id,
                     'name': job.adapter_fasta.name,
-                } if job.adapter_fasta else None
+                } if job.adapter_fasta else None,
+                'result': {
+                    'id': job_result.id,
+                    'filtered_file': job_result.filtered_file.url if job_result.filtered_file else None,
+                    'json_file': job_result.json_file.url if job_result.json_file else None,
+                    'html_file': job_result.html_file.url if job_result.html_file else None,
+                    'processed_at': job_result.processed_at
+                } if job_result else None
             }
-            for job in fastp_jobs
-        }
         # Retrieve related PorechopResult and PorechopJob (if they exist)
         porechop_result = PorechopResult.objects.filter(project_nanopore_sequence=pns).first()
         porechop_jobs = getattr(nanopore_sequence, 'related_porechop_jobs', [])

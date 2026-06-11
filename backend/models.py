@@ -891,6 +891,13 @@ class FastpJob(models.Model):
 
 class FastpResult(models.Model):
     project_nanopore_sequence = models.ForeignKey(ProjectNanoporeSequence, on_delete=models.CASCADE)
+    fastp_job = models.ForeignKey(
+        FastpJob,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='fastp_results'
+    )
     filtered_file = models.FileField(upload_to='fastp_output/')
     json_file = models.FileField(upload_to='fastp_output/')
     html_file = models.FileField(upload_to='fastp_output/')

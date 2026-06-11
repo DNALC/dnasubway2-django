@@ -101,6 +101,7 @@ def run_fastp_task(fastp_job_id):
         # Save the fastp result
         FastpResult.objects.create(
             project_nanopore_sequence=project_nanopore_sequence,
+            fastp_job=fastp_job,
             filtered_file=f'fastp_output/{file_base_name}.fastq.gz',
             json_file=f'fastp_output/{file_base_name}.json',
             html_file=f'fastp_output/{file_base_name}.html'
