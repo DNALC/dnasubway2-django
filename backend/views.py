@@ -1020,7 +1020,7 @@ def project_info(request):
         .prefetch_related(
             Prefetch(
                 'nanopore_sequence__fastpjob_set',
-                queryset=FastpJob.objects.filter(project=project).exclude(status='failed'),
+                queryset=FastpJob.objects.filter(project=project).exclude(status='failed').select_related('adapter_fasta'),
                 to_attr='related_fastp_jobs'
             ),
             Prefetch(
@@ -1051,6 +1051,23 @@ def project_info(request):
         # Retrieve related FastpResult and FastpJob (if they exist)
         fastp_result = FastpResult.objects.filter(project_nanopore_sequence=pns).first()
         fastp_jobs = getattr(nanopore_sequence, 'related_fastp_jobs', [])
+        fastp_runs_dict = {
+            job.id: {
+                'status': job.status,
+                'reads_to_process': job.reads_to_process,
+                'qualified_quality_phred': job.qualified_quality_phred,
+                'average_qual': job.average_qual,
+                'length_required': job.length_required,
+                'length_limit': job.length_limit,
+                'report_title': job.report_title,
+                'adapter_sequence': job.adapter_sequence,
+                'adapter_fasta': {
+                    'id': job.adapter_fasta.id,
+                    'name': job.adapter_fasta.name,
+                } if job.adapter_fasta else None
+            }
+            for job in fastp_jobs
+        }
         # Retrieve related PorechopResult and PorechopJob (if they exist)
         porechop_result = PorechopResult.objects.filter(project_nanopore_sequence=pns).first()
         porechop_jobs = getattr(nanopore_sequence, 'related_porechop_jobs', [])
@@ -1088,6 +1105,7 @@ def project_info(request):
                 'processed_at': fastp_result.processed_at if fastp_result else None
             } if fastp_result else None,
             'fastp_run': True if fastp_jobs else False,
+            'fastp_jobs': fastp_runs_dict,
             'porechop_result': {
                 'chopped_file': porechop_result.chopped_file.url if porechop_result else None,
                 'html_file': porechop_result.html_log_file.url if porechop_result else None,
