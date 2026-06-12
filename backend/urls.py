@@ -114,6 +114,7 @@ urlpatterns = [
     path("backend/remove_sanger_from_folder", remove_sanger_from_folder, name='remove_sanger_from_folder'),
     path("backend/add_nanopore_to_folder", add_nanopore_to_folder, name='add_nanopore_to_folder'),
     path("backend/remove_nanopore_from_folder", remove_nanopore_from_folder, name='remove_nanopore_from_folder'),
+    path("backend/set_fastp_jobs_primary", set_fastp_jobs_primary, name='set_fastp_jobs_primary'),
 ]
 
 
