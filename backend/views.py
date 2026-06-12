@@ -6460,6 +6460,12 @@ def set_fastp_jobs_primary(request):
         primary=True
     ).update(primary=False)
 
+    FastpJob.objects.filter(id__in=target_job_ids).update(primary=True)
+
+    return JsonResponse({
+        'success': f'Successfully updated {len(target_job_ids)} unique sequence job(s) to primary.'
+    })
+
 def upload_cyverse_metabarcoding(request):
     parsed_data = parse_user_project_data(request)
     if 'error' in parsed_data:
