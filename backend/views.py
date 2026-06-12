@@ -6401,6 +6401,63 @@ def cancel_job(request):
 
     return JsonResponse({'success': "Job stopped successfully"}, status=200)
 
+def set_fastp_jobs_primary(request):
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    job_id = data.get('job_id', 0)
+
+    try:
+        job = FastpJob.objects.get(id=job_id)
+    except FastpJob.DoesNotExist:
+        return JsonResponse({'error': 'FastpJob not found'}, status=400)
+
+    if hasattr(job.project, 'user') and job.project.user != request.user:
+        return JsonResponse({'error': 'You do not have permission for this job'}, status=400)
+
+    if job.status != "completed":
+        return JsonResponse({'error': 'Job is not completed'}, status=400)
+
+    match_filters = {
+        'project': job.project,
+        'status': 'completed',
+        'reads_to_process': job.reads_to_process,
+        'qualified_quality_phred': job.qualified_quality_phred,
+        'average_qual': job.average_qual,
+        'length_required': job.length_required,
+        'length_limit': job.length_limit,
+        'report_title': job.report_title,
+        'adapter_sequence': job.adapter_sequence,
+    }
+
+    if job.adapter_fasta:
+        match_filters['adapter_fasta__name'] = job.adapter_fasta.name
+        match_filters['adapter_fasta__reads'] = job.adapter_fasta.reads
+    else:
+        match_filters['adapter_fasta'] = None
+
+    # Query all matching completed jobs ordered by id ascending
+    matching_jobs = FastpJob.objects.filter(**match_filters).order_by('id')
+
+    # Group by nanopore_sequence to isolate the most recent job (highest ID)
+    latest_jobs_by_sequence = {}
+    for m_job in matching_jobs:
+        latest_jobs_by_sequence[m_job.nanopore_sequence_id] = m_job
+
+    affected_sequence_ids = list(latest_jobs_by_sequence.keys())
+    target_job_ids = [j.id for j in latest_jobs_by_sequence.values()]
+
+    if not target_job_ids:
+        return JsonResponse({'error': 'No matching completed jobs found'}, status=400)
+
+    FastpJob.objects.filter(
+        project=job.project,
+        nanopore_sequence_id__in=affected_sequence_ids,
+        primary=True
+    ).update(primary=False)
+
 def upload_cyverse_metabarcoding(request):
     parsed_data = parse_user_project_data(request)
     if 'error' in parsed_data:

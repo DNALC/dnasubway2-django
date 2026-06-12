@@ -882,6 +882,8 @@ class FastpJob(models.Model):
         blank=True,
         related_name='fastp_adapter_jobs'
     )
+    primary = models.BooleanField(default=False)
+    chosen_name = models.CharField(max_length=255, default='')
 
     #class Meta:
     #    unique_together = ('nanopore_sequence', 'project')
