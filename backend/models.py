@@ -908,6 +908,77 @@ class FastpResult(models.Model):
     def __str__(self):
         return f"Fastp Result for {self.project_nanopore_sequence.nanopore_sequence.name}"
 
+class RasusaJob(models.Model):
+    primary = models.BooleanField(default=False)
+    chosen_name = models.CharField(max_length=255, default='', blank=True)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE)
+    nanopore_sequence = models.ForeignKey(NanoporeSequence, on_delete=models.CASCADE)
+    fastp_job = models.ForeignKey(FastpJob, on_delete=models.CASCADE, related_name='rasusa_jobs')
+
+    genome_size = models.CharField(max_length=50)
+
+    status = models.CharField(
+        max_length=20,
+        choices=(('queued', 'Queued'), ('running', 'Running'), ('completed', 'Completed'), ('failed', 'Failed')),
+        default='queued'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"RasusaJob for {self.nanopore_sequence.name} (Genome: {self.genome_size})"
+
+class RasusaResult(models.Model):
+    project_nanopore_sequence = models.ForeignKey(ProjectNanoporeSequence, on_delete=models.CASCADE)
+    rasusa_job = models.ForeignKey(
+        RasusaJob,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='rasusa_results'
+    )
+    fastp_result = models.ForeignKey(FastpResult, on_delete=models.CASCADE)
+
+    subsampled_file = models.FileField(upload_to='rasusa_output/')
+    processed_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"RasusaResult for {self.project_nanopore_sequence.nanopore_sequence.name}"
+
+class FlyeJob(models.Model):
+    primary = models.BooleanField(default=False)
+    chosen_name = models.CharField(max_length=255, default='', blank=True)
+
+    project = models.ForeignKey('Project', on_delete=models.CASCADE)
+    nanopore_sequence = models.ForeignKey('NanoporeSequence', on_delete=models.CASCADE)
+
+    fastp_job = models.ForeignKey(FastpJob, on_delete=models.CASCADE, null=True, blank=True, related_name='flye_jobs')
+    rasusa_job = models.ForeignKey(RasusaJob, on_delete=models.CASCADE, null=True, blank=True, related_name='flye_jobs')
+
+    genome_size = models.CharField(max_length=50, null=True, blank=True)
+
+    status = models.CharField(
+        max_length=20,
+        choices=(('queued', 'Queued'), ('running', 'Running'), ('completed', 'Completed'), ('failed', 'Failed')),
+        default='queued'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"FlyeJob for {self.nanopore_sequence.name}"
+
+class FlyeResult(models.Model):
+    project_nanopore_sequence = models.ForeignKey(ProjectNanoporeSequence, on_delete=models.CASCADE)
+    flye_job = models.ForeignKey(FlyeJob, on_delete=models.SET_NULL, null=True, blank=True, related_name='flye_results')
+
+    assembly_fasta = models.FileField(upload_to='flye_output/')
+    assembly_info = models.FileField(upload_to='flye_output/', null=True, blank=True)
+    assembly_graph = models.FileField(upload_to='flye_output/', null=True, blank=True)
+
+    processed_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"FlyeResult for {self.project_nanopore_sequence.nanopore_sequence.name}"
+
 class PorechopJob(models.Model):
     nanopore_sequence = models.ForeignKey(NanoporeSequence, on_delete=models.CASCADE)
     project = models.ForeignKey(Project, on_delete=models.CASCADE)
