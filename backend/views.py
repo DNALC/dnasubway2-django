@@ -1056,6 +1056,8 @@ def project_info(request):
             job_result = next(iter(job.fastp_results.all()), None)
             fastp_runs_dict[job.id] = {
                 'status': job.status,
+                'primary': job.primary,
+                'name': job.chosen_name,
                 'reads_to_process': job.reads_to_process,
                 'qualified_quality_phred': job.qualified_quality_phred,
                 'average_qual': job.average_qual,
