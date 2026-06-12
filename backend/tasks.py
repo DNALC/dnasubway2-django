@@ -11,7 +11,7 @@ from ansi2html import Ansi2HTMLConverter
 from django.utils import timezone
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from .models import FastpJob, FastpResult, ProjectNanoporeSequence, PorechopResult, PorechopJob, MedakaJob, MedakaResult, DataFile, ProjectDataFile, BlastJob, BlastResult, Job, BlastData, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, JobPodFile, BasecallingJob, ProjectMetabarcodingFile, BlastCache
+from .models import FastpJob, FastpResult, ProjectNanoporeSequence, PorechopResult, PorechopJob, MedakaJob, MedakaResult, DataFile, ProjectDataFile, BlastJob, BlastResult, Job, BlastData, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, JobPodFile, BasecallingJob, ProjectMetabarcodingFile, BlastCache, RasusaJob, RasusaResult
 from .utils import get_service_token, generate_user_token, connect_to_tapis, ensure_instance_ready
 from django.conf import settings
 import tempfile
@@ -1652,3 +1652,60 @@ def submit_proname_refine_job_task(job_id, clusterId, minReadsPerCluster, cluste
     except Exception as e:
         job.status = 'FAILED'
         job.save()
+
+@shared_task
+def run_rasusa_task(rasusa_job_id):
+    try:
+        # 1. Retrieve Jobs and Results
+        rasusa_job = RasusaJob.objects.get(id=rasusa_job_id)
+
+        # Get the FastpResult associated with the FastpJob used for this Rasusa run
+        fastp_result = FastpResult.objects.get(fastp_job=rasusa_job.fastp_job)
+
+        project_nanopore_sequence = ProjectNanoporeSequence.objects.get(
+            nanopore_sequence_id=rasusa_job.nanopore_sequence_id,
+            project_id=rasusa_job.project_id
+        )
+    except (RasusaJob.DoesNotExist, FastpResult.DoesNotExist, ProjectNanoporeSequence.DoesNotExist) as e:
+        return f"Job failed to initialize: {str(e)}"
+
+    rasusa_job.status = 'running'
+    rasusa_job.save()
+
+    # 2. Setup file paths
+    # Using PNS ID to keep naming consistent with Fastp
+    file_base_name = str(project_nanopore_sequence.id)
+
+    output_dir = 'rasusa_output'
+    os.makedirs(output_dir, exist_ok=True)
+
+    fastp_filtered_file = fastp_result.filtered_file.path
+    rasusa_subsampled_file = os.path.join(output_dir, f'{file_base_name}_subsampled.fastq.gz')
+
+    # 3. Construct and run the command
+    # Using `conda run -n env_name` avoids complex subshell activate commands
+    rasusa_command = [
+        'conda', 'run', '-n', 'assembly_env',
+        'rasusa', 'reads',
+        '--coverage', '100',
+        '--genome-size', rasusa_job.genome_size,
+        '--output', rasusa_subsampled_file,
+        fastp_filtered_file
+    ]
+
+    try:
+        subprocess.run(rasusa_command, check=True)
+
+        rasusa_job.status = 'completed'
+        rasusa_job.save()
+
+        RasusaResult.objects.create(
+            project_nanopore_sequence=project_nanopore_sequence,
+            rasusa_job=rasusa_job,
+            fastp_result=fastp_result,
+            subsampled_file=f'rasusa_output/{file_base_name}_subsampled.fastq.gz'
+        )
+
+    except subprocess.CalledProcessError:
+        rasusa_job.status = 'failed'
+        rasusa_job.save()

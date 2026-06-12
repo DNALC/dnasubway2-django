@@ -25,11 +25,11 @@ import string
 import time
 import uuid
 #from django.shortcuts import render
-from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail, Dada2Result, RarefactionJobDetail, CoreMetricsJobDetail, CoreMetricsResult, GneissJobDetail, AncomJobDetail, PronameImportJobDetail, PronameImportResult, PronameFilterJobDetail, PronameFilterResult, PronameRefineJobDetail, PronameRefineResult, PronameTaxonomyJobDetail
+from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail, Dada2Result, RarefactionJobDetail, CoreMetricsJobDetail, CoreMetricsResult, GneissJobDetail, AncomJobDetail, PronameImportJobDetail, PronameImportResult, PronameFilterJobDetail, PronameFilterResult, PronameRefineJobDetail, PronameRefineResult, PronameTaxonomyJobDetail, RasusaJob
 from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file, extract_qiime2_metadata_sample_ids, get_max_rarefaction_depth, get_sampling_depth_guardrails, get_user_job_status, stop_job, validate_metabarcoding_pairs, find_best_medaka_model, is_gzip, is_fastq_text
 import gzip
 import shutil
-from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task, submit_rarefaction_job_task, submit_coremetrics_job_task, submit_gneiss_job_task, submit_ancom_job_task, submit_proname_import_job_task, submit_proname_filter_job_task, submit_proname_refine_job_task # Celery task
+from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task, submit_rarefaction_job_task, submit_coremetrics_job_task, submit_gneiss_job_task, submit_ancom_job_task, submit_proname_import_job_task, submit_proname_filter_job_task, submit_proname_refine_job_task, run_rasusa_task # Celery task
 from Bio import SeqIO
 import base64
 from .models import Author, MuscleTrim
@@ -7360,3 +7360,102 @@ def proname_refine(request):
     )
     submit_proname_refine_job_task.delay(job.id, clusterId, minReadsPerCluster, clusterMethod, medakaModel, chimeraDb, simplex_reads, duplex_reads, dual_reads)
     return JsonResponse({'job_uuid': job.uuid, 'status': job.status})
+
+def submit_rasusa_job(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+
+    genome_size = data.get('genome_size')
+    if not genome_size:
+        return JsonResponse({'error': 'genome_size is required'}, status=400)
+
+    valid_genome_pattern = r'^\d+(\.\d+)?([kKmMbBgGtT][bB]?)?$'
+    if not re.match(valid_genome_pattern, str(genome_size)):
+        return JsonResponse({
+            'error': 'Invalid genome_size format. Use plain numbers or valid suffixes (e.g., 5000000, 5m, 4.6mb).'
+        }, status=400)
+
+    expected_sequence_ids = set(
+        ProjectNanoporeSequence.objects.filter(project=project)
+        .values_list('nanopore_sequence_id', flat=True)
+    )
+
+    if not expected_sequence_ids:
+        return JsonResponse({'error': 'This project has no associated Nanopore sequences.'}, status=400)
+
+    all_fastp_jobs = FastpJob.objects.filter(
+        project=project,
+        status='completed'
+    ).order_by('id')
+
+    target_jobs_by_sequence = {}
+
+    for job in all_fastp_jobs:
+        seq_id = job.nanopore_sequence_id
+
+        if seq_id not in target_jobs_by_sequence:
+            target_jobs_by_sequence[seq_id] = job
+        else:
+            current_stored = target_jobs_by_sequence[seq_id]
+            if job.primary:
+                target_jobs_by_sequence[seq_id] = job
+            elif not current_stored.primary:
+                target_jobs_by_sequence[seq_id] = job
+
+    found_sequence_ids = set(target_jobs_by_sequence.keys())
+    missing_sequence_ids = expected_sequence_ids - found_sequence_ids
+
+    if missing_sequence_ids:
+        missing_names = NanoporeSequence.objects.filter(
+            id__in=missing_sequence_ids
+        ).values_list('name', flat=True)
+
+        missing_names_str = ", ".join(missing_names)
+        return JsonResponse({
+            'error': f'Cannot submit Rasusa job. Missing a completed Fastp job for the following sequences: {missing_names_str}'
+        }, status=400)
+
+    created_rasusa_job_ids = []
+    duplicate_names = []
+
+    for seq_id, fastp_job in target_jobs_by_sequence.items():
+        is_duplicate = RasusaJob.objects.filter(
+            project=project,
+            nanopore_sequence_id=seq_id,
+            fastp_job=fastp_job,
+            genome_size=genome_size
+        ).exists()
+
+        if is_duplicate:
+            duplicate_names.append(fastp_job.nanopore_sequence.name)
+            continue
+
+        rasusa_job = RasusaJob.objects.create(
+            project=project,
+            nanopore_sequence_id=seq_id,
+            fastp_job=fastp_job,
+            genome_size=genome_size,
+            status='queued'
+        )
+        created_rasusa_job_ids.append(rasusa_job.id)
+
+    if duplicate_names and not created_rasusa_job_ids:
+        return JsonResponse({
+            'error': f'All sequences aborted. Identical Rasusa jobs already exist for: {", ".join(duplicate_names)}'
+        }, status=400)
+
+    for r_id in created_rasusa_job_ids:
+        run_rasusa_task.delay(r_id)
+
+    msg = f'Successfully queued Rasusa for {len(created_rasusa_job_ids)} sequence(s).'
+    if duplicate_names:
+        msg += f' Skipped {len(duplicate_names)} existing duplicates.'
+
+    return JsonResponse({
+        'success': msg,
+        'job_ids': created_rasusa_job_ids
+    })
