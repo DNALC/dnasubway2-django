@@ -268,7 +268,10 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
     for mr in MedakaResult.objects.select_related("project_nanopore_sequence__project").filter(project_nanopore_sequence__project__deleted=True) \
         .filter(has_file_q(['fasta_file', 'fasta_file_medaka_headers', 'medaka_output_dir'])).iterator(chunk_size=500):
         maybe_delete_and_collect(mr, 'fasta_file', mr.fasta_file)
-        maybe_delete_and_collect(mr, 'fasta_file_medaka_headers', mr.fasta_file_medaka_headers)
+        # Don't delete fasta_file_medaka_headers if its a medaka_reference_file
+        headers_path = getattr(mr.fasta_file_medaka_headers, 'name', str(mr.fasta_file_medaka_headers))
+        if not headers_path.startswith('medaka_reference_files'):
+            maybe_delete_and_collect(mr, 'fasta_file_medaka_headers', mr.fasta_file_medaka_headers)
         maybe_delete_and_collect(mr, 'medaka_output_dir', mr.medaka_output_dir)
 
     # ---- STEP 12: PodFile (Shared user repository file via Job links) ----
