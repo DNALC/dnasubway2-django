@@ -198,6 +198,7 @@ def run_medaka_task(project_nanopore_sequence_id, reference_fasta_path=None, inp
 
             consensus_fasta_path = os.path.join(medaka_output_dir, 'consensus.fasta')
             max_bam_path = os.path.join(medaka_output_dir, 'calls_to_draft.bam')
+            consensus_bam_path = os.path.join(medaka_output_dir, 'calls_to_consensus.bam')
             if os.path.exists(consensus_fasta_path):
                 records = list(SeqIO.parse(consensus_fasta_path, "fasta"))
                 if len(records) == 1:
@@ -208,12 +209,19 @@ def run_medaka_task(project_nanopore_sequence_id, reference_fasta_path=None, inp
                         record.name = clean_id
                         record.description = clean_id
                         SeqIO.write(record, consensus_fasta_path, "fasta")
-
-
             if os.path.exists(max_bam_path):
                 subprocess.run(f"samtools index {max_bam_path}", shell=True, check=True)
             if os.path.exists(consensus_fasta_path):
                 subprocess.run(f"samtools faidx {consensus_fasta_path}", shell=True, check=True)
+
+            align_cmd = (
+                f"minimap2 -ax map-ont {consensus_fasta_path} {input_file_path} | "
+                f"samtools view -Sb - | "
+                f"samtools sort -o {consensus_bam_path}"
+            )
+            subprocess.run(align_cmd, shell=True, check=True)
+            if os.path.exists(consensus_bam_path):
+                subprocess.run(f"samtools index {consensus_bam_path}", shell=True, check=True)
 
         else:
             # --- De Novo Approach ---
