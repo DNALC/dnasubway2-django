@@ -7317,7 +7317,7 @@ def proname_refine(request):
             job__status='FINISHED',
             job__project=project,
             job__appId=settings.QIIME2_PRONAME_REFINE_APP_ID,
-            proname_filter_job=proname_filter_job,
+            filter_job=proname_filter_job,
             chimera_db=chimeraDb,
             cluster_id=clusterId,
             min_reads_per_cluster=minReadsPerCluster,
