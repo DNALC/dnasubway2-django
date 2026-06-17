@@ -7350,7 +7350,7 @@ def proname_refine(request):
     job.save()
     PronameRefineJobDetail.objects.create(
         job=job,
-        proname_filter_job=proname_filter_job,
+        filter_job=proname_filter_job,
         chimera_db=chimeraDb,
         cluster_id=clusterId,
         min_reads_per_cluster=minReadsPerCluster,
