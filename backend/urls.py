@@ -39,6 +39,7 @@ urlpatterns = [
     path('backend/reference_sets', get_reference_sets, name='reference_sets'),
     path('backend/sample_sets', get_sample_sets, name='sample_sets'),
     path('backend/upload_reference_sets', process_reference_data, name='upload_reference_sets'),
+    path('backend/remove_reference_sets', remove_reference_data, name='upload_reference_sets'),
     path('backend/run_fastp', submit_fastp_job, name='run_fastp'),
     path('backend/run_porechop', run_porechop, name='run_porechop'),
     path('backend/run_medaka', run_medaka, name='run_medaka'),

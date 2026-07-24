@@ -2990,6 +2990,70 @@ def upload_blast_results(request):
 
     return JsonResponse({'message': 'Blast results uploaded successfully.', 'sequences_added': sequences_added, 'warnings': warnings}, status=201)
 
+def remove_reference_data(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    reference_ids = data.get('reference_id')  # Can be a single ID or a list of IDs
+    sample_ids = data.get('sample_id')  # Can be a single ID or a list of IDs
+
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    project = parsed_data['project']
+    reference_ids = data.get('reference_id')  # Can be a single ID or a list of IDs
+    sample_ids = data.get('sample_id')  # Can be a single ID or a list of IDs
+
+    warnings = []
+    sequences_removed = 0
+
+    if reference_ids:
+        for reference_id in reference_ids:
+            # Check if ReferenceData exists to provide clean warnings
+            if not ReferenceData.objects.filter(id=reference_id).exists():
+                warnings.append(f"ReferenceData with ID {reference_id} not found.")
+                continue
+
+            # Find and delete the ProjectDataFile links for this reference data
+            deleted_count, _ = ProjectDataFile.objects.filter(
+                project=project,
+                data_file__reference_data_id=reference_id
+            ).delete()
+
+            sequences_removed += deleted_count
+
+    if sample_ids:
+        for sample_id in sample_ids:
+            # Check if SampleData exists to provide clean warnings
+            if not SampleData.objects.filter(id=sample_id).exists():
+                warnings.append(f"SampleData with ID {sample_id} not found.")
+                continue
+
+            # Find and delete the ProjectDataFile links for this sample data
+            deleted_count, _ = ProjectDataFile.objects.filter(
+                project=project,
+                data_file__sample_data_id=sample_id
+            ).delete()
+
+            sequences_removed += deleted_count
+
+    if sequences_removed > 0:
+        return JsonResponse({
+            'success': f'Successfully removed {sequences_removed} sequence link(s) from the project.',
+            'warnings': warnings
+        })
+    else:
+        return JsonResponse({
+            'status': 'error',
+            'message': 'No matching sequences were found in this project to remove.',
+            'warnings': warnings
+        })
+
 def process_reference_data(request):
     PROTOCOL = request.scheme + "://"
     parsed_data = parse_user_project_data(request)
