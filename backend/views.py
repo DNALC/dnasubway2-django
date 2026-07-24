@@ -3000,14 +3000,15 @@ def remove_reference_data(request):
     reference_ids = data.get('reference_id')  # Can be a single ID or a list of IDs
     sample_ids = data.get('sample_id')  # Can be a single ID or a list of IDs
 
-    parsed_data = parse_user_project_data(request)
-    if 'error' in parsed_data:
-        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+    # Check for missing parameters
+    if not reference_ids and not sample_ids:
+        return JsonResponse({'error': 'reference_id or sample_id is required'}, status=400)
 
-    data = parsed_data['data']
-    project = parsed_data['project']
-    reference_ids = data.get('reference_id')  # Can be a single ID or a list of IDs
-    sample_ids = data.get('sample_id')  # Can be a single ID or a list of IDs
+    # Convert single integers/strings into a list so they can be iterated over
+    if reference_ids and not isinstance(reference_ids, (list, tuple)):
+        reference_ids = [reference_ids]
+    if sample_ids and not isinstance(sample_ids, (list, tuple)):
+        sample_ids = [sample_ids]
 
     warnings = []
     sequences_removed = 0
