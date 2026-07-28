@@ -2152,8 +2152,8 @@ def muscle_sequence(request):
     file_ids = data.get('file_ids', [])
     if not file_ids:
         return JsonResponse({'error': 'File not provided'}, status=400)
-    if len(file_ids)<3:
-        return JsonResponse({'error': 'provide at least 3 single sequence fasta files'}, status=400)
+    if len(file_ids)<2:
+        return JsonResponse({'error': 'provide at least 2 single sequence fasta files'}, status=400)
     muscle_result = local_muscle(request.user, PROTOCOL + request.get_host()+'/backend', file_ids, project.id)
     return JsonResponse(muscle_result)
 
