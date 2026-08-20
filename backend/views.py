@@ -12,7 +12,6 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.core.exceptions import SuspiciousFileOperation
-from django.views.decorators.http import require_GET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 import io
@@ -7526,13 +7525,21 @@ def submit_rasusa_job(request):
         'job_ids': created_rasusa_job_ids
     })
 
-@require_GET
+@csrf_exempt
 def google_image_search(request):
-    query = request.GET.get("q", "").strip()
+    parsed = parse_data(request)
+
+    if isinstance(parsed, dict) and 'error' in parsed:
+        return JsonResponse(
+            {'error': parsed['error']},
+            status=parsed['status']
+        )
+
+    query = parsed.get('query', '').strip()
 
     if not query:
         return JsonResponse(
-            {"error": "Missing q parameter"},
+            {"error": "Missing query parameter"},
             status=400
         )
 
