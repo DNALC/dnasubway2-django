@@ -12,6 +12,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.core.exceptions import SuspiciousFileOperation
+from django.views.decorators.http import require_GET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 import io
@@ -7524,3 +7525,40 @@ def submit_rasusa_job(request):
         'success': msg,
         'job_ids': created_rasusa_job_ids
     })
+
+@require_GET
+def google_image_search(request):
+    query = request.GET.get("q", "").strip()
+
+    if not query:
+        return JsonResponse(
+            {"error": "Missing q parameter"},
+            status=400
+        )
+
+    params = {
+        "q": query,
+        "key": settings.GOOGLE_SEARCH_API_KEY,
+        "cx": settings.GOOGLE_SEARCH_CX,
+        "searchType": "image",
+        "num": 10,
+        "safe": "high",
+    }
+
+    try:
+        response = requests.get(
+            "https://www.googleapis.com/customsearch/v1",
+            params=params,
+            timeout=10,
+        )
+
+        return JsonResponse(
+            response.json(),
+            status=response.status_code
+        )
+
+    except requests.RequestException as e:
+        return JsonResponse(
+            {"error": "Google image search failed"},
+            status=502
+        )

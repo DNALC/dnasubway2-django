@@ -117,6 +117,7 @@ urlpatterns = [
     path("backend/remove_nanopore_from_folder", remove_nanopore_from_folder, name='remove_nanopore_from_folder'),
     path("backend/set_fastp_jobs_primary", set_fastp_jobs_primary, name='set_fastp_jobs_primary'),
     path('backend/run_rasusa', submit_rasusa_job, name='run_rasusa'),
+    path('backend/google_image_search', google_image_search, name='google_image_search'),
 ]
 
 
