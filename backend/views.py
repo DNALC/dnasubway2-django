@@ -7525,17 +7525,14 @@ def submit_rasusa_job(request):
         'job_ids': created_rasusa_job_ids
     })
 
-@csrf_exempt
 def google_image_search(request):
-    parsed = parse_data(request)
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
 
-    if isinstance(parsed, dict) and 'error' in parsed:
-        return JsonResponse(
-            {'error': parsed['error']},
-            status=parsed['status']
-        )
+    data = parsed_data['data']
 
-    query = parsed.get('query', '').strip()
+    query = data.get('query', '').strip()
 
     if not query:
         return JsonResponse(
