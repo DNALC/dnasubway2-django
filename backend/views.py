@@ -7553,6 +7553,9 @@ def google_image_search(request):
         response = requests.get(
             "https://www.googleapis.com/customsearch/v1",
             params=params,
+            headers={
+              'Referer': 'https://dnasubway.org/',
+            },
             timeout=10,
         )
 
