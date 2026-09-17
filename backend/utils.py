@@ -7,6 +7,7 @@ import gzip
 import hashlib
 import json
 from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
 import os
 from pathlib import Path
 import re
