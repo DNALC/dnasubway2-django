@@ -823,6 +823,8 @@ def get_quality_scores(abi_file_path):
         with urlopen(abi_file_path) as response:
             abi_data = BytesIO(response.read())  # Load data into a BytesIO object
     else:
+        if not os.path.isfile(abi_file_path):
+            return None
         # Open the local file
         abi_data = open(abi_file_path, "rb")
 
