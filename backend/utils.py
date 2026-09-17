@@ -871,8 +871,13 @@ def parse_reads(file_url):
     returned_record = False
     quality_scores = None
     # Open the URL and read the content
-    with urlopen(file_url) as response:
-        file_content = response.read()
+    # Open the URL and read the content
+    try:
+        with urlopen(file_url) as response:
+            file_content = response.read()
+    except (HTTPError, URLError, OSError) as e:
+        message = f"Error: Unable to retrieve file: {e}"
+        return message, sequence, trace_exists, returned_record, quality_scores
 
     try:
         # Try parsing as AB1
