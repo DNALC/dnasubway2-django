@@ -75,7 +75,7 @@ def mark_inactive_user_projects_deleted(dry_run=True, days=180, current_date=Non
     else:
         today = current_date
     # Policy Enforcement Rollout Date
-    POLICY_START_DATE = date(2026, 6, 5)
+    POLICY_START_DATE = date(2026, 9, 18)
     days_since_start = (today - POLICY_START_DATE).days
 
     # The dividing line: Anyone who was already inactive for 150+ days on rollout day (Jan 6, 2026)
