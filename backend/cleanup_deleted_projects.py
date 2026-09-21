@@ -140,6 +140,16 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
             f"Marked {count} guest projects as deleted.\n"
         )
 
+    # Snapshot projects needing file cleanup
+    target_project_ids = list(
+        Project.objects.filter(deleted=True, files_deleted=False).values_list("id", flat=True)
+    )
+
+    if not target_project_ids:
+        if stdout:
+            stdout.write("No projects pending file cleanup.\n")
+        return
+
     # --------------------------------------------------
     # Cache NanoporeSampleSet directories once
     # --------------------------------------------------
@@ -149,7 +159,7 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
     )
 
     # ---- STEP 2: MetabarcodingFile ----
-    for mfile in MetabarcodingFile.objects.filter(project_links__project__deleted=True) \
+    for mfile in MetabarcodingFile.objects.filter(project_links__project__id__in=target_project_ids) \
         .filter(has_file_q(['file'])).prefetch_related("project_links__project").iterator(chunk_size=500):
 
         links = list(mfile.project_links.all())
@@ -161,14 +171,14 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
             maybe_delete_and_collect(mfile, 'file', mfile.file)
 
     # ---- STEP 3: DemuxResult ----
-    for d in DemuxResult.objects.select_related("job__project").filter(job__project__deleted=True) \
+    for d in DemuxResult.objects.select_related("job__project").filter(job__project__id__in=target_project_ids) \
         .filter(has_file_q(['demux_qza', 'demux_summary_qzv', 'log_file'])).iterator(chunk_size=500):
         maybe_delete_and_collect(d, 'demux_qza', d.demux_qza)
         maybe_delete_and_collect(d, 'demux_summary_qzv', d.demux_summary_qzv)
         maybe_delete_and_collect(d, 'log_file', d.log_file)
 
     # ---- STEP 4: MetadataFile ----
-    for mfile in MetadataFile.objects.filter(project_links__project__deleted=True) \
+    for mfile in MetadataFile.objects.filter(project_links__project__id__in=target_project_ids) \
         .filter(has_file_q(['file'])).prefetch_related("project_links__project").iterator(chunk_size=500):
 
         links = list(mfile.project_links.all())
@@ -180,7 +190,7 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
             maybe_delete_and_collect(mfile, 'file', mfile.file)
 
     # ---- STEP 5: NanoporeSequence ----
-    seq_qs = NanoporeSequence.objects.filter(projectnanoporesequence__project__deleted=True) \
+    seq_qs = NanoporeSequence.objects.filter(projectnanoporesequence__project__id__in=target_project_ids) \
         .filter(has_file_q(['file'])).distinct()
     for seq in seq_qs.iterator(chunk_size=500):
         proj_links = list(
@@ -214,7 +224,7 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
                 maybe_delete_and_collect(seq, 'file', seq.file)
 
     # ---- STEP 6: DataFile ----
-    qs = DataFile.objects.filter(projectdatafile__project__deleted=True) \
+    qs = DataFile.objects.filter(projectdatafile__project__id__in=target_project_ids) \
         .filter(has_file_q(['associated_abi', 'associated_fasta'])).distinct()
 
     for df in qs.iterator(chunk_size=500):
@@ -236,21 +246,21 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
                     maybe_delete_and_collect(df, 'associated_fasta', df.associated_fasta)
 
     # ---- STEP 7: MuscleJob ----
-    for mj in MuscleJob.objects.select_related("job__project").filter(job__project__deleted=True) \
+    for mj in MuscleJob.objects.select_related("job__project").filter(job__project__id__in=target_project_ids) \
         .filter(has_file_q(['associated_input'])).iterator(chunk_size=500):
 
         if hasattr(mj, "associated_input"):
             maybe_delete_and_collect(mj, 'associated_input', mj.associated_input)
 
     # ---- STEP 8: MuscleData ----
-    for md in MuscleData.objects.select_related("muscle_job__job__project").filter(muscle_job__job__project__deleted=True) \
+    for md in MuscleData.objects.select_related("muscle_job__job__project").filter(muscle_job__job__project__id__in=target_project_ids) \
         .filter(has_file_q(['associated_alignment', 'original_associated_alignment'])).iterator(chunk_size=500):
 
         maybe_delete_and_collect(md, 'associated_alignment', md.associated_alignment)
         maybe_delete_and_collect(md, 'original_associated_alignment', md.original_associated_alignment)
 
     # ---- STEP 9: FastpResult ----
-    for fr in FastpResult.objects.select_related("project_nanopore_sequence__project").filter(project_nanopore_sequence__project__deleted=True) \
+    for fr in FastpResult.objects.select_related("project_nanopore_sequence__project").filter(project_nanopore_sequence__project__id__in=target_project_ids) \
         .filter(has_file_q(['filtered_file', 'json_file', 'html_file'])).iterator(chunk_size=500):
 
         maybe_delete_and_collect(fr, 'filtered_file', fr.filtered_file)
@@ -258,14 +268,14 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
         maybe_delete_and_collect(fr, 'html_file', fr.html_file)
 
     # ---- STEP 10: PorechopResult ----
-    for pr in PorechopResult.objects.select_related("project_nanopore_sequence__project").filter(project_nanopore_sequence__project__deleted=True) \
+    for pr in PorechopResult.objects.select_related("project_nanopore_sequence__project").filter(project_nanopore_sequence__project__id__in=target_project_ids) \
         .filter(has_file_q(['chopped_file', 'html_log_file'])).iterator(chunk_size=500):
 
         maybe_delete_and_collect(pr, 'chopped_file', pr.chopped_file)
         maybe_delete_and_collect(pr, 'html_log_file', pr.html_log_file)
 
     # ---- STEP 11: MedakaResult ----
-    for mr in MedakaResult.objects.select_related("project_nanopore_sequence__project").filter(project_nanopore_sequence__project__deleted=True) \
+    for mr in MedakaResult.objects.select_related("project_nanopore_sequence__project").filter(project_nanopore_sequence__project__id__in=target_project_ids) \
         .filter(has_file_q(['fasta_file', 'fasta_file_medaka_headers', 'medaka_output_dir'])).iterator(chunk_size=500):
         maybe_delete_and_collect(mr, 'fasta_file', mr.fasta_file)
         # Don't delete fasta_file_medaka_headers if its a medaka_reference_file
@@ -275,7 +285,7 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
         maybe_delete_and_collect(mr, 'medaka_output_dir', mr.medaka_output_dir)
 
     # ---- STEP 12: PodFile (Shared user repository file via Job links) ----
-    for pf in PodFile.objects.filter(jobpodfile__job__project__deleted=True).filter(has_file_q(['file'])).distinct().iterator(chunk_size=500):
+    for pf in PodFile.objects.filter(jobpodfile__job__project__id__in=target_project_ids).filter(has_file_q(['file'])).distinct().iterator(chunk_size=500):
         # Safe boundary check: make sure it isn't linked to any active project jobs
         has_active_links = JobPodFile.objects.filter(podfile=pf, job__project__deleted=False).exists()
         if not has_active_links:
@@ -283,7 +293,7 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
 
     # ---- STEP 13: Dada2Result ----
     fields = ['rooted_tree_qza', 'trim_table_qza', 'rep_seqs_qza', 'stats_qzv', 'rep_seqs_qzv', 'trim_table_qzv', 'log_file']
-    for dr in Dada2Result.objects.select_related("job__project").filter(job__project__deleted=True).filter(has_file_q(fields)).iterator(chunk_size=500):
+    for dr in Dada2Result.objects.select_related("job__project").filter(job__project__id__in=target_project_ids).filter(has_file_q(fields)).iterator(chunk_size=500):
         for field in fields:
             maybe_delete_and_collect(dr, field, getattr(dr, field))
 
@@ -292,7 +302,7 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
               'duplex_distribution', 'dual_distribution', 'simplex_reads',
               'duplex_reads', 'dual_reads']
     for pir in PronameImportResult.objects.select_related("job__project") \
-        .filter(job__project__deleted=True) \
+        .filter(job__project__id__in=target_project_ids) \
         .filter(has_file_q(fields)).iterator(chunk_size=500):
         for field in fields:
             maybe_delete_and_collect(pir, field, getattr(pir, field))
@@ -302,7 +312,7 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
               'duplex_distribution', 'dual_distribution', 'simplex_reads',
               'duplex_reads', 'dual_reads']
     for pfr in PronameFilterResult.objects.select_related("job__project") \
-        .filter(job__project__deleted=True) \
+        .filter(job__project__id__in=target_project_ids) \
         .filter(has_file_q(fields)).iterator(chunk_size=500):
         for field in fields:
             maybe_delete_and_collect(pfr, field, getattr(pfr, field))
@@ -311,7 +321,7 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
     fields = ['rep_seqs_qza', 'trim_table_qza', 'rep_seqs_fasta', 'rep_table_tsv',
               'rooted_tree_qza', 'rep_seqs_qzv', 'trim_table_qzv']
     for prr in PronameRefineResult.objects.select_related("job__project") \
-        .filter(job__project__deleted=True) \
+        .filter(job__project__id__in=target_project_ids) \
         .filter(has_file_q(fields)).iterator(chunk_size=500):
         for field in fields:
             maybe_delete_and_collect(prr, field, getattr(prr, field))
@@ -319,7 +329,7 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
     # ---- STEP 17: PronameTaxonomyResult ----
     fields = ['rooted_tree_qza', 'taxonomy_qza', 'taxa_bar_plots']
     for ptr in PronameTaxonomyResult.objects.select_related("job__project") \
-        .filter(job__project__deleted=True) \
+        .filter(job__project__id__in=target_project_ids) \
         .filter(has_file_q(fields)).iterator(chunk_size=500):
         for field in fields:
             maybe_delete_and_collect(ptr, field, getattr(ptr, field))
@@ -327,7 +337,7 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
     # ---- STEP 18: RarefactionResult ----
     fields = ['alpha_rarefaction_qzv', 'log_file']
     for rr in RarefactionResult.objects.select_related("job__project") \
-        .filter(job__project__deleted=True) \
+        .filter(job__project__id__in=target_project_ids) \
         .filter(has_file_q(fields)).iterator(chunk_size=500):
         for field in fields:
             maybe_delete_and_collect(rr, field, getattr(rr, field))
@@ -340,21 +350,21 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
               'shannon_group_significance', 'shannon_raincloud', 'jaccard_emperor', 'taxa_bar_plots',
               'taxonomy_qzv', 'unweighted_unifrac_bioenv', 'unweighted_unifrac_emperor', 'weighted_unifrac_emperor']
     for cmr in CoreMetricsResult.objects.select_related("job__project") \
-        .filter(job__project__deleted=True) \
+        .filter(job__project__id__in=target_project_ids) \
         .filter(has_file_q(fields)).iterator(chunk_size=500):
         for field in fields:
             maybe_delete_and_collect(cmr, field, getattr(cmr, field))
 
     # ---- STEP 20: GneissResult ----
     for gr in GneissResult.objects.select_related("job__project") \
-        .filter(job__project__deleted=True) \
+        .filter(job__project__id__in=target_project_ids) \
         .filter(has_file_q(['heatmap'])).iterator(chunk_size=500):
         maybe_delete_and_collect(gr, 'heatmap', gr.heatmap)
 
     # ---- STEP 21: AncomResult ----
     fields = ['heatmap', 'abundance_barplot', 'ancom', 'differentials']
     for ar in AncomResult.objects.select_related("job__project") \
-        .filter(job__project__deleted=True) \
+        .filter(job__project__id__in=target_project_ids) \
         .filter(has_file_q(fields)).iterator(chunk_size=500):
         for field in fields:
             maybe_delete_and_collect(ar, field, getattr(ar, field))
@@ -373,6 +383,12 @@ def cleanup_deleted_project_files(dry_run=True, stdout=None, stderr=None):
                             f"Cleared {len(batch_ids)} references for "
                             f"{model_class.__name__}.{field_name} (Batch {i//BATCH_SIZE + 1})\n"
                         )
+        # Mark targeted projects as cleaned up
+        for i in range(0, len(target_project_ids), BATCH_SIZE):
+            batch_ids = target_project_ids[i : i + BATCH_SIZE]
+            Project.objects.filter(id__in=batch_ids).update(files_deleted=True)
+        if stdout:
+            stdout.write(f"Marked {len(target_project_ids)} projects as files_deleted=True.\n")
 
     total_mb = total_bytes / 1_000_000
     total_gb = total_bytes / 1_000_000_000

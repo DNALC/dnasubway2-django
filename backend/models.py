@@ -209,6 +209,7 @@ class Project(models.Model):
     annotation_type = models.CharField(max_length=16, choices=ANNOTATION_TYPES, default='main_genome')
     public = models.BooleanField(default=False)
     deleted = models.BooleanField(default=False)
+    files_deleted = models.BooleanField(default=False, db_index=True)
     created = models.DateTimeField(auto_now_add=True)
 
     class Meta:
