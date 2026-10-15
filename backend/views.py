@@ -7493,7 +7493,7 @@ def submit_rasusa_job(request):
             nanopore_sequence_id=seq_id,
             fastp_job=fastp_job,
             genome_size=genome_size
-        ).exists()
+        ).exclude(status="failed").exists()
 
         if is_duplicate:
             duplicate_names.append(fastp_job.nanopore_sequence.name)
