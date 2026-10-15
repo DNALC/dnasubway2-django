@@ -15,6 +15,7 @@ from .models import FastpJob, FastpResult, ProjectNanoporeSequence, PorechopResu
 from .utils import get_service_token, generate_user_token, connect_to_tapis, ensure_instance_ready
 from django.conf import settings
 import tempfile
+import shutil
 
 @shared_task
 def run_fastp_task(fastp_job_id):
