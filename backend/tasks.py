@@ -1690,6 +1690,7 @@ def run_rasusa_task(rasusa_job_id):
 
     fastp_filtered_file = fastp_result.filtered_file.path
     rasusa_subsampled_file = os.path.join(output_dir, f'{file_base_name}_subsampled.fastq.gz')
+    rasusa_log_file = os.path.join(output_dir, f'{file_base_name}_rasusa.log')
 
     # 3. Construct and run the command
     # Using `conda run -n env_name` avoids complex subshell activate commands
@@ -1703,21 +1704,38 @@ def run_rasusa_task(rasusa_job_id):
     ]
 
     try:
-        subprocess.run(rasusa_command, check=True)
-
-        rasusa_job.status = 'completed'
-        rasusa_job.save()
-
-        RasusaResult.objects.create(
-            project_nanopore_sequence=project_nanopore_sequence,
-            rasusa_job=rasusa_job,
-            fastp_result=fastp_result,
-            subsampled_file=f'rasusa_output/{file_base_name}_subsampled.fastq.gz'
+        completed = subprocess.run(
+            rasusa_command,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
         )
+    except subprocess.CalledProcessError as e:
+        # Save output on failure and mark job as failed
+        with open(rasusa_log_file, 'wb') as log_file:
+            log_file.write(e.stdout or b'')
+            if e.stderr:
+                log_file.write(b'\n--- STDERR ---\n' + e.stderr)
 
-    except subprocess.CalledProcessError:
         rasusa_job.status = 'failed'
-        rasusa_job.save()
+        rasusa_job.save(update_fields=['status'])
+        return f"Rasusa failed with exit code {e.returncode}"
+
+    # Handle success (runs only if subprocess succeeds)
+    with open(rasusa_log_file, 'wb') as log_file:
+        log_file.write(completed.stdout or b'')
+
+    rasusa_job.status = 'completed'
+    rasusa_job.save(update_fields=['status'])
+
+    RasusaResult.objects.create(
+        project_nanopore_sequence=project_nanopore_sequence,
+        rasusa_job=rasusa_job,
+        fastp_result=fastp_result,
+        subsampled_file=f'rasusa_output/{file_base_name}_subsampled.fastq.gz'
+    )
+
+    return f"Rasusa task completed successfully for job {rasusa_job_id}"
 
 @shared_task
 def run_flye_task(flye_job_id, subsampled_file, rasusa_result_id, genome_size):
