@@ -974,11 +974,66 @@ class FlyeResult(models.Model):
     assembly_fasta = models.FileField(upload_to='flye_output/')
     assembly_info = models.FileField(upload_to='flye_output/', null=True, blank=True)
     assembly_graph = models.FileField(upload_to='flye_output/', null=True, blank=True)
+    assembly_output_dir = models.FilePathField(path='flye_output/', match='.*', recursive=True)
 
     processed_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"FlyeResult for {self.project_nanopore_sequence.nanopore_sequence.name}"
+
+class QuastJob(models.Model):
+    primary = models.BooleanField(default=False)
+    chosen_name = models.CharField(max_length=255, default='', blank=True)
+
+    project = models.ForeignKey('Project', on_delete=models.CASCADE)
+    flye_result = models.ForeignKey(FlyeResult, on_delete=models.CASCADE)
+
+    status = models.CharField(
+        max_length=20,
+        choices=(('queued', 'Queued'), ('running', 'Running'), ('completed', 'Completed'), ('failed', 'Failed')),
+        default='queued'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"QuastJob for {self.flye_result.id}"
+
+class QuastResult(models.Model):
+    quast_job = models.ForeignKey(QuastJob, on_delete=models.SET_NULL, null=True, blank=True, related_name='quast_results')
+
+    quast_output_dir = models.FilePathField(path='quast_output/', match='.*', recursive=True)
+
+    processed_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"QuastResult for {self.quast_job.id}"
+
+class PlannotateJob(models.Model):
+    primary = models.BooleanField(default=False)
+    chosen_name = models.CharField(max_length=255, default='', blank=True)
+
+    project = models.ForeignKey('Project', on_delete=models.CASCADE)
+    flye_result = models.ForeignKey(FlyeResult, on_delete=models.CASCADE)
+
+    status = models.CharField(
+        max_length=20,
+        choices=(('queued', 'Queued'), ('running', 'Running'), ('completed', 'Completed'), ('failed', 'Failed')),
+        default='queued'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"PlannotateJob for {self.flye_result.id}"
+
+class PlannotateResult(models.Model):
+    plannotate_job = models.ForeignKey(PlannotateJob, on_delete=models.SET_NULL, null=True, blank=True, related_name='plannotate_results')
+
+    plannotate_output_dir = models.FilePathField(path='plannotate_output/', match='.*', recursive=True)
+
+    processed_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"PlannotateResult for {self.plannotate_job.id}"
 
 class PorechopJob(models.Model):
     nanopore_sequence = models.ForeignKey(NanoporeSequence, on_delete=models.CASCADE)
