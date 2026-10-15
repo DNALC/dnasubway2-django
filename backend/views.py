@@ -25,11 +25,11 @@ import string
 import time
 import uuid
 #from django.shortcuts import render
-from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail, Dada2Result, RarefactionJobDetail, CoreMetricsJobDetail, CoreMetricsResult, GneissJobDetail, AncomJobDetail, PronameImportJobDetail, PronameImportResult, PronameFilterJobDetail, PronameFilterResult, PronameRefineJobDetail, PronameRefineResult, PronameTaxonomyJobDetail, RasusaJob
-from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file, extract_qiime2_metadata_sample_ids, get_max_rarefaction_depth, get_sampling_depth_guardrails, get_user_job_status, stop_job, validate_metabarcoding_pairs, find_best_medaka_model, is_gzip, is_fastq_text
+from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail, Dada2Result, RarefactionJobDetail, CoreMetricsJobDetail, CoreMetricsResult, GneissJobDetail, AncomJobDetail, PronameImportJobDetail, PronameImportResult, PronameFilterJobDetail, PronameFilterResult, PronameRefineJobDetail, PronameRefineResult, PronameTaxonomyJobDetail, RasusaJob, RasusaResult, FlyeJob, FlyeResult, QuastJob, PlannotateJob
+from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file, extract_qiime2_metadata_sample_ids, get_max_rarefaction_depth, get_sampling_depth_guardrails, get_user_job_status, stop_job, validate_metabarcoding_pairs, find_best_medaka_model, is_gzip, is_fastq_text, get_nanopore_assembly_pipeline
 import gzip
 import shutil
-from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task, submit_rarefaction_job_task, submit_coremetrics_job_task, submit_gneiss_job_task, submit_ancom_job_task, submit_proname_import_job_task, submit_proname_filter_job_task, submit_proname_refine_job_task, run_rasusa_task # Celery task
+from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task, submit_rarefaction_job_task, submit_coremetrics_job_task, submit_gneiss_job_task, submit_ancom_job_task, submit_proname_import_job_task, submit_proname_filter_job_task, submit_proname_refine_job_task, run_rasusa_task, run_flye_task, run_quast_task, run_plannotate_task # Celery task
 from Bio import SeqIO
 import base64
 from .models import Author, MuscleTrim
@@ -1036,6 +1036,11 @@ def project_info(request):
         ) \
         .order_by('nanopore_sequence__name')
 
+    assembly_pipeline_by_sequence_id = get_nanopore_assembly_pipeline(
+        project,
+        list(nanopore_sequences),
+    )
+
     # Prepare the data to return: list of id and name of each NanoporeSequence
     nanopore = []
     for pns in nanopore_sequences:
@@ -1127,6 +1132,7 @@ def project_info(request):
                 'processed_at': medaka_result.processed_at if medaka_result else None
             } if medaka_result else None,
             'medaka_run': True if medaka_jobs else False,
+            'assembly_pipeline': assembly_pipeline_by_sequence_id[nanopore_sequence.id],
         })
     # Filter for MuscleJobs with valid status (not CANCELLED or FAILED)
     muscle_jobs = MuscleJob.objects.filter(
@@ -7523,6 +7529,215 @@ def submit_rasusa_job(request):
     return JsonResponse({
         'success': msg,
         'job_ids': created_rasusa_job_ids
+    })
+
+def submit_flye_job(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse(
+            {'error': parsed_data['error']},
+            status=parsed_data['status']
+        )
+
+    project = parsed_data['project']
+
+    # Get the latest completed primary Rasusa job, if one exists.
+    # Otherwise, get the latest completed Rasusa job for the project.
+    completed_rasusa_jobs = RasusaJob.objects.filter(
+        project=project,
+        status='completed'
+    ).order_by('-created_at', '-id')
+
+    rasusa_job = (
+        completed_rasusa_jobs.filter(primary=True).first()
+        or completed_rasusa_jobs.first()
+    )
+
+    if not rasusa_job:
+        return JsonResponse({
+            'error': 'Cannot submit Flye job. This project has no completed Rasusa job.'
+        }, status=400)
+
+    # Get the genome size from the selected Rasusa job.
+    genome_size = rasusa_job.genome_size
+
+    if not genome_size:
+        return JsonResponse({
+            'error': 'Cannot submit Flye job. The selected Rasusa job has no genome size.'
+        }, status=400)
+
+    # Get the latest Rasusa result associated with the selected job.
+    rasusa_result = RasusaResult.objects.filter(
+        rasusa_job=rasusa_job
+    ).order_by('-processed_at', '-id').first()
+
+    if not rasusa_result:
+        return JsonResponse({
+            'error': 'Cannot submit Flye job. No Rasusa result was found for the selected Rasusa job.'
+        }, status=400)
+
+    # Get the subsampled file.
+    if not rasusa_result.subsampled_file:
+        return JsonResponse({
+            'error': 'Cannot submit Flye job. The Rasusa result has no subsampled file.'
+        }, status=400)
+
+    try:
+        subsampled_file = rasusa_result.subsampled_file.path
+    except (ValueError, NotImplementedError, OSError):
+        return JsonResponse({
+            'error': 'Cannot submit Flye job. Unable to access the Rasusa subsampled file.'
+        }, status=400)
+
+    # Do not submit another Flye job using the same Rasusa job
+    # unless all previous jobs using it have failed.
+    is_duplicate = FlyeJob.objects.filter(
+        project=project,
+        rasusa_job=rasusa_job
+    ).exclude(status='failed').exists()
+
+    if is_duplicate:
+        return JsonResponse({
+            'error': (
+                'Cannot submit Flye job. A Flye job using this Rasusa job '
+                'already exists and has not failed.'
+            )
+        }, status=400)
+
+    # Create the Flye job record.
+    flye_job = FlyeJob.objects.create(
+        project=project,
+        nanopore_sequence=rasusa_job.nanopore_sequence,
+        rasusa_job=rasusa_job,
+        genome_size=genome_size,
+        status='queued'
+    )
+
+    # Submit the Flye Celery task.
+    run_flye_task.delay(
+        flye_job.id,
+        subsampled_file,
+        rasusa_result.id,
+        genome_size
+    )
+
+    return JsonResponse({
+        'success': 'Successfully queued Flye.',
+        'job_id': flye_job.id
+    })
+
+def get_completed_flye_result(project):
+    # Prefer the latest completed primary Flye job.
+    # Otherwise, use the latest completed Flye job.
+    completed_flye_jobs = FlyeJob.objects.filter(
+        project=project,
+        status='completed',
+    ).order_by('-created_at', '-id')
+
+    flye_job = (
+        completed_flye_jobs.filter(primary=True).first()
+        or completed_flye_jobs.first()
+    )
+
+    if not flye_job:
+        return None, 'This project has no completed Flye job.'
+
+    # Get the latest result for the selected Flye job.
+    flye_result = FlyeResult.objects.filter(
+        flye_job=flye_job,
+    ).order_by('-processed_at', '-id').first()
+
+    if not flye_result:
+        return None, 'The selected Flye job has no associated Flye result.'
+
+    try:
+        assembly_fasta_path = flye_result.assembly_fasta.path
+    except (ValueError, NotImplementedError, OSError):
+        return None, 'The Flye assembly FASTA is not accessible.'
+
+    if not os.path.isfile(assembly_fasta_path):
+        return None, 'The Flye assembly FASTA file does not exist.'
+
+    return flye_result, None
+
+def submit_quast_job(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse(
+            {'error': parsed_data['error']},
+            status=parsed_data['status'],
+        )
+
+    project = parsed_data['project']
+
+    flye_result, error = get_completed_flye_result(project)
+    if error:
+        return JsonResponse({'error': error}, status=400)
+
+    is_duplicate = QuastJob.objects.filter(
+        project=project,
+        flye_result=flye_result,
+    ).exclude(status='failed').exists()
+
+    if is_duplicate:
+        return JsonResponse({
+            'error': (
+                'A QUAST job for this Flye result already exists '
+                'and has not failed.'
+            )
+        }, status=400)
+
+    quast_job = QuastJob.objects.create(
+        project=project,
+        flye_result=flye_result,
+        status='queued',
+    )
+
+    run_quast_task.delay(quast_job.id)
+
+    return JsonResponse({
+        'success': 'Successfully queued QUAST.',
+        'job_id': quast_job.id,
+    })
+
+def submit_plannotate_job(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse(
+            {'error': parsed_data['error']},
+            status=parsed_data['status'],
+        )
+
+    project = parsed_data['project']
+
+    flye_result, error = get_completed_flye_result(project)
+    if error:
+        return JsonResponse({'error': error}, status=400)
+
+    is_duplicate = PlannotateJob.objects.filter(
+        project=project,
+        flye_result=flye_result,
+    ).exclude(status='failed').exists()
+
+    if is_duplicate:
+        return JsonResponse({
+            'error': (
+                'A pLannotate job for this Flye result already exists '
+                'and has not failed.'
+            )
+        }, status=400)
+
+    plannotate_job = PlannotateJob.objects.create(
+        project=project,
+        flye_result=flye_result,
+        status='queued',
+    )
+
+    run_plannotate_task.delay(plannotate_job.id)
+
+    return JsonResponse({
+        'success': 'Successfully queued pLannotate.',
+        'job_id': plannotate_job.id,
     })
 
 def google_image_search(request):

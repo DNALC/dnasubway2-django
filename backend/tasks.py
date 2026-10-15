@@ -11,7 +11,7 @@ from ansi2html import Ansi2HTMLConverter
 from django.utils import timezone
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from .models import FastpJob, FastpResult, ProjectNanoporeSequence, PorechopResult, PorechopJob, MedakaJob, MedakaResult, DataFile, ProjectDataFile, BlastJob, BlastResult, Job, BlastData, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, JobPodFile, BasecallingJob, ProjectMetabarcodingFile, BlastCache, RasusaJob, RasusaResult
+from .models import FastpJob, FastpResult, ProjectNanoporeSequence, PorechopResult, PorechopJob, MedakaJob, MedakaResult, DataFile, ProjectDataFile, BlastJob, BlastResult, Job, BlastData, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, JobPodFile, BasecallingJob, ProjectMetabarcodingFile, BlastCache, RasusaJob, RasusaResult, FlyeJob, FlyeResult, QuastJob, QuastResult, PlannotateJob, PlannotateResult
 from .utils import get_service_token, generate_user_token, connect_to_tapis, ensure_instance_ready
 from django.conf import settings
 import tempfile
@@ -1717,3 +1717,225 @@ def run_rasusa_task(rasusa_job_id):
     except subprocess.CalledProcessError:
         rasusa_job.status = 'failed'
         rasusa_job.save()
+
+@shared_task
+def run_flye_task(flye_job_id, subsampled_file, rasusa_result_id, genome_size):
+    try:
+        # 1. Retrieve Jobs and Results
+        flye_job = FlyeJob.objects.get(id=flye_job_id)
+
+        rasusa_result = RasusaResult.objects.get(id=rasusa_result_id)
+
+        project_nanopore_sequence = rasusa_result.project_nanopore_sequence
+
+        if flye_job.rasusa_job_id != rasusa_result.rasusa_job_id:
+            raise ValueError(
+                'The Flye job and Rasusa result do not reference the same Rasusa job.'
+            )
+
+        if not os.path.isfile(subsampled_file):
+            raise FileNotFoundError(
+                f'Rasusa subsampled file not found: {subsampled_file}'
+            )
+
+    except (
+        FlyeJob.DoesNotExist,
+        RasusaResult.DoesNotExist,
+        ValueError,
+        FileNotFoundError,
+    ) as e:
+        # If the Flye job exists, mark it as failed.
+        try:
+            flye_job.status = 'failed'
+            flye_job.save(update_fields=['status'])
+        except (NameError, UnboundLocalError):
+            pass
+
+        return f'Job failed to initialize: {str(e)}'
+
+    flye_job.status = 'running'
+    flye_job.save(update_fields=['status'])
+
+    # 2. Set up the output directory.
+    # Use the Flye job ID to give every run its own directory,
+    # including retries after failures.
+    output_dir = os.path.join('flye_output', str(flye_job.id))
+
+    os.makedirs('flye_output', exist_ok=True)
+
+    # 3. Construct and run the command.
+    flye_command = [
+        'conda', 'run', '-n', 'assembly_env',
+        'flye',
+        '--nano-raw', subsampled_file,
+        '--out-dir', output_dir,
+        '--threads', '8',
+        '-g', str(genome_size),
+    ]
+
+    try:
+        subprocess.run(flye_command, check=True)
+
+        # 4. Verify the expected output files.
+        assembly_fasta = os.path.join(output_dir, 'assembly.fasta')
+        assembly_info = os.path.join(output_dir, 'assembly_info.txt')
+        assembly_graph = os.path.join(output_dir, 'assembly_graph.gfa')
+
+        if not os.path.isfile(assembly_fasta):
+            raise FileNotFoundError(
+                f'Flye did not produce the expected assembly: {assembly_fasta}'
+            )
+
+        # 5. Save the results.
+        FlyeResult.objects.create(
+            project_nanopore_sequence=project_nanopore_sequence,
+            flye_job=flye_job,
+            assembly_fasta=assembly_fasta,
+            assembly_info=(
+                assembly_info if os.path.isfile(assembly_info) else None
+            ),
+            assembly_graph=(
+                assembly_graph if os.path.isfile(assembly_graph) else None
+            ),
+            assembly_output_dir=output_dir,
+        )
+
+        flye_job.status = 'completed'
+        flye_job.save(update_fields=['status'])
+
+    except Exception as e:
+        flye_job.status = 'failed'
+        flye_job.save(update_fields=['status'])
+        return f'Flye job failed: {str(e)}'
+
+    return f'Flye job {flye_job.id} completed successfully.'
+
+@shared_task
+def run_quast_task(quast_job_id):
+    try:
+        quast_job = QuastJob.objects.select_related(
+            'flye_result'
+        ).get(id=quast_job_id)
+    except QuastJob.DoesNotExist:
+        return f'Job failed to initialize: QuastJob {quast_job_id} does not exist.'
+
+    quast_job.status = 'running'
+    quast_job.save(update_fields=['status'])
+
+    try:
+        # 1. Retrieve the Flye result and assembly FASTA.
+        flye_result = quast_job.flye_result
+        assembly_fasta = flye_result.assembly_fasta.path
+
+        if not os.path.isfile(assembly_fasta):
+            raise FileNotFoundError(
+                f'Flye assembly FASTA not found: {assembly_fasta}'
+            )
+
+        # 2. Set up the output directory.
+        output_dir = os.path.join(
+            'quast_output',
+            str(flye_result.id),
+        )
+
+        os.makedirs('quast_output', exist_ok=True)
+        shutil.rmtree(output_dir, ignore_errors=True)
+
+        # 3. Run QUAST.
+        quast_command = [
+            'conda', 'run', '-n', 'assembly_env',
+            'quast.py',
+            assembly_fasta,
+            '-o', output_dir,
+        ]
+
+        subprocess.run(quast_command, check=True)
+
+        if not os.path.isdir(output_dir):
+            raise FileNotFoundError(
+                f'QUAST output directory was not created: {output_dir}'
+            )
+
+        # 4. Save the results.
+        QuastResult.objects.create(
+            quast_job=quast_job,
+            quast_output_dir=output_dir,
+        )
+
+        quast_job.status = 'completed'
+        quast_job.save(update_fields=['status'])
+
+    except Exception as e:
+        quast_job.status = 'failed'
+        quast_job.save(update_fields=['status'])
+        return f'QUAST job {quast_job.id} failed: {str(e)}'
+
+    return f'QUAST job {quast_job.id} completed successfully.'
+
+@shared_task
+def run_plannotate_task(plannotate_job_id):
+    try:
+        plannotate_job = PlannotateJob.objects.select_related(
+            'flye_result'
+        ).get(id=plannotate_job_id)
+    except PlannotateJob.DoesNotExist:
+        return (
+            f'Job failed to initialize: '
+            f'PlannotateJob {plannotate_job_id} does not exist.'
+        )
+
+    plannotate_job.status = 'running'
+    plannotate_job.save(update_fields=['status'])
+
+    try:
+        # 1. Retrieve the Flye result and assembly FASTA.
+        flye_result = plannotate_job.flye_result
+        assembly_fasta = flye_result.assembly_fasta.path
+
+        if not os.path.isfile(assembly_fasta):
+            raise FileNotFoundError(
+                f'Flye assembly FASTA not found: {assembly_fasta}'
+            )
+
+        # 2. Set up the output directory.
+        output_dir = os.path.join(
+            'plannotate_output',
+            str(flye_result.id),
+        )
+
+        os.makedirs('plannotate_output', exist_ok=True)
+        shutil.rmtree(output_dir, ignore_errors=True)
+        os.makedirs(output_dir, exist_ok=True)
+
+        # 3. Run pLannotate.
+        plannotate_command = [
+            'conda', 'run', '-n', 'plannotate_env',
+            'plannotate', 'batch',
+            '-i', assembly_fasta,
+            '-o', output_dir,
+        ]
+
+        subprocess.run(plannotate_command, check=True)
+
+        if not os.path.isdir(output_dir):
+            raise FileNotFoundError(
+                f'pLannotate output directory was not created: {output_dir}'
+            )
+
+        # 4. Save the results.
+        PlannotateResult.objects.create(
+            plannotate_job=plannotate_job,
+            plannotate_output_dir=output_dir,
+        )
+
+        plannotate_job.status = 'completed'
+        plannotate_job.save(update_fields=['status'])
+
+    except Exception as e:
+        plannotate_job.status = 'failed'
+        plannotate_job.save(update_fields=['status'])
+        return (
+            f'pLannotate job {plannotate_job.id} failed: {str(e)}'
+        )
+
+    return f'pLannotate job {plannotate_job.id} completed successfully.'

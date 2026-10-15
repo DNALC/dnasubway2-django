@@ -18,8 +18,9 @@ import time
 import uuid
 import zipfile
 import h5py
+from collections import defaultdict
 from tapipy.tapis import Tapis
-from .models import Job, DataFile, TrimJob, ConsensusJob, ConsensusData, BlastJob, BlastData, BlastResult, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, Project, ProjectDataFile, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, BlastCache, ProjectMetabarcodingFile, PronameRefineJobDetail
+from .models import Job, DataFile, TrimJob, ConsensusJob, ConsensusData, BlastJob, BlastData, BlastResult, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, Project, ProjectDataFile, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, BlastCache, ProjectMetabarcodingFile, PronameRefineJobDetail, RasusaJob, RasusaResult, FlyeJob, FlyeResult, QuastJob, QuastResult, PlannotateJob, PlannotateResult
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 tapis = Tapis(base_url='https://cyverse.tapis.io', username=settings.TAPIS_CYVERSE_USERNAME, password=settings.TAPIS_CYVERSE_PASSWORD)
@@ -2372,3 +2373,242 @@ def get_sampling_depth_guardrails(qza_path):
 
     except Exception:
         return default_min, default_suggested, default_max
+
+def _file_url(file_field):
+    """Return a file's URL, or None if the file is unavailable."""
+    if not file_field:
+        return None
+
+    try:
+        return file_field.url
+    except (ValueError, NotImplementedError):
+        return None
+
+
+def get_nanopore_assembly_pipeline(project, project_nanopore_sequences):
+    """
+    Build the assembly pipeline data for each Nanopore sequence.
+
+    Returns a dictionary keyed by NanoporeSequence.id.
+
+    Each sequence contains separate jobs and results collections for
+    Rasusa, Flye, QUAST, and pLannotate. IDs preserve the relationships
+    between records, including results whose source job is nullable.
+    """
+    project_nanopore_sequences = list(project_nanopore_sequences)
+
+    sequence_ids = {
+        pns.nanopore_sequence_id
+        for pns in project_nanopore_sequences
+    }
+    pns_ids = {
+        pns.id
+        for pns in project_nanopore_sequences
+    }
+
+    def empty_pipeline():
+        return {
+            'rasusa': {'jobs': [], 'results': []},
+            'flye': {'jobs': [], 'results': []},
+            'quast': {'jobs': [], 'results': []},
+            'plannotate': {'jobs': [], 'results': []},
+        }
+
+    pipeline = {
+        sequence_id: empty_pipeline()
+        for sequence_id in sequence_ids
+    }
+
+    # ---------------------------------------------------------
+    # Rasusa jobs
+    # ---------------------------------------------------------
+    rasusa_jobs = list(
+        RasusaJob.objects.filter(
+            project=project,
+            nanopore_sequence_id__in=sequence_ids,
+        ).order_by('-created_at', '-id')
+    )
+
+    for job in rasusa_jobs:
+        pipeline[job.nanopore_sequence_id]['rasusa']['jobs'].append({
+            'id': job.id,
+            'name': job.chosen_name,
+            'primary': job.primary,
+            'status': job.status,
+            'genome_size': job.genome_size,
+            'fastp_job_id': job.fastp_job_id,
+            'created_at': job.created_at,
+        })
+
+    # RasusaResult points directly to ProjectNanoporeSequence.
+    # Query through that relationship so results can still be included
+    # if their nullable rasusa_job foreign key is empty.
+    rasusa_results = RasusaResult.objects.filter(
+        project_nanopore_sequence_id__in=pns_ids,
+    ).select_related(
+        'project_nanopore_sequence',
+    ).order_by('-processed_at', '-id')
+
+    for result in rasusa_results:
+        sequence_id = (
+            result.project_nanopore_sequence.nanopore_sequence_id
+        )
+
+        pipeline[sequence_id]['rasusa']['results'].append({
+            'id': result.id,
+            'rasusa_job_id': result.rasusa_job_id,
+            'project_nanopore_sequence_id': (
+                result.project_nanopore_sequence_id
+            ),
+            'fastp_result_id': result.fastp_result_id,
+            'subsampled_file': _file_url(result.subsampled_file),
+            'processed_at': result.processed_at,
+        })
+
+    # ---------------------------------------------------------
+    # Flye jobs
+    # ---------------------------------------------------------
+    flye_jobs = list(
+        FlyeJob.objects.filter(
+            project=project,
+            nanopore_sequence_id__in=sequence_ids,
+        ).order_by('-created_at', '-id')
+    )
+
+    for job in flye_jobs:
+        pipeline[job.nanopore_sequence_id]['flye']['jobs'].append({
+            'id': job.id,
+            'name': job.chosen_name,
+            'primary': job.primary,
+            'status': job.status,
+            'fastp_job_id': job.fastp_job_id,
+            'rasusa_job_id': job.rasusa_job_id,
+            'genome_size': job.genome_size,
+            'created_at': job.created_at,
+        })
+
+    # FlyeResult also points directly to ProjectNanoporeSequence.
+    # This retains results even if flye_job_id is NULL.
+    flye_results = FlyeResult.objects.filter(
+        project_nanopore_sequence_id__in=pns_ids,
+    ).select_related(
+        'project_nanopore_sequence',
+    ).order_by('-processed_at', '-id')
+
+    flye_result_ids = []
+
+    for result in flye_results:
+        sequence_id = (
+            result.project_nanopore_sequence.nanopore_sequence_id
+        )
+        flye_result_ids.append(result.id)
+
+        pipeline[sequence_id]['flye']['results'].append({
+            'id': result.id,
+            'flye_job_id': result.flye_job_id,
+            'project_nanopore_sequence_id': (
+                result.project_nanopore_sequence_id
+            ),
+            'assembly_fasta': _file_url(result.assembly_fasta),
+            'assembly_info': _file_url(result.assembly_info),
+            'assembly_graph': _file_url(result.assembly_graph),
+            'assembly_output_dir': result.assembly_output_dir,
+            'processed_at': result.processed_at,
+        })
+
+    # ---------------------------------------------------------
+    # QUAST jobs and results
+    # ---------------------------------------------------------
+    quast_jobs = QuastJob.objects.filter(
+        project=project,
+        flye_result_id__in=flye_result_ids,
+    ).select_related(
+        'flye_result__project_nanopore_sequence',
+    ).order_by('-created_at', '-id')
+
+    quast_job_ids = []
+
+    for job in quast_jobs:
+        sequence_id = (
+            job.flye_result.project_nanopore_sequence.nanopore_sequence_id
+        )
+        quast_job_ids.append(job.id)
+
+        pipeline[sequence_id]['quast']['jobs'].append({
+            'id': job.id,
+            'name': job.chosen_name,
+            'primary': job.primary,
+            'status': job.status,
+            'flye_result_id': job.flye_result_id,
+            'created_at': job.created_at,
+        })
+
+    # Query result records separately so multiple results are retained.
+    quast_results = QuastResult.objects.filter(
+        quast_job_id__in=quast_job_ids,
+    ).select_related(
+        'quast_job__flye_result__project_nanopore_sequence',
+    ).order_by('-processed_at', '-id')
+
+    for result in quast_results:
+        sequence_id = (
+            result.quast_job.flye_result
+            .project_nanopore_sequence.nanopore_sequence_id
+        )
+
+        pipeline[sequence_id]['quast']['results'].append({
+            'id': result.id,
+            'quast_job_id': result.quast_job_id,
+            'flye_result_id': result.quast_job.flye_result_id,
+            'quast_output_dir': result.quast_output_dir,
+            'processed_at': result.processed_at,
+        })
+
+    # ---------------------------------------------------------
+    # pLannotate jobs and results
+    # ---------------------------------------------------------
+    plannotate_jobs = PlannotateJob.objects.filter(
+        project=project,
+        flye_result_id__in=flye_result_ids,
+    ).select_related(
+        'flye_result__project_nanopore_sequence',
+    ).order_by('-created_at', '-id')
+
+    plannotate_job_ids = []
+
+    for job in plannotate_jobs:
+        sequence_id = (
+            job.flye_result.project_nanopore_sequence.nanopore_sequence_id
+        )
+        plannotate_job_ids.append(job.id)
+
+        pipeline[sequence_id]['plannotate']['jobs'].append({
+            'id': job.id,
+            'name': job.chosen_name,
+            'primary': job.primary,
+            'status': job.status,
+            'flye_result_id': job.flye_result_id,
+            'created_at': job.created_at,
+        })
+
+    plannotate_results = PlannotateResult.objects.filter(
+        plannotate_job_id__in=plannotate_job_ids,
+    ).select_related(
+        'plannotate_job__flye_result__project_nanopore_sequence',
+    ).order_by('-processed_at', '-id')
+
+    for result in plannotate_results:
+        sequence_id = (
+            result.plannotate_job.flye_result
+            .project_nanopore_sequence.nanopore_sequence_id
+        )
+
+        pipeline[sequence_id]['plannotate']['results'].append({
+            'id': result.id,
+            'plannotate_job_id': result.plannotate_job_id,
+            'flye_result_id': result.plannotate_job.flye_result_id,
+            'plannotate_output_dir': result.plannotate_output_dir,
+            'processed_at': result.processed_at,
+        })
+
+    return pipeline
