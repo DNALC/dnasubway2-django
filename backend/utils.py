@@ -2412,6 +2412,7 @@ def get_nanopore_assembly_pipeline(project, project_nanopore_sequences):
             'flye': {'jobs': [], 'results': []},
             'quast': {'jobs': [], 'results': []},
             'plannotate': {'jobs': [], 'results': []},
+            'prokka': {'jobs': [], 'results': []},
         }
 
     pipeline = {
