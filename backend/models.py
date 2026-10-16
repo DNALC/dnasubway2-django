@@ -1035,6 +1035,33 @@ class PlannotateResult(models.Model):
     def __str__(self):
         return f"PlannotateResult for {self.plannotate_job.id}"
 
+class ProkkaJob(models.Model):
+    primary = models.BooleanField(default=False)
+    chosen_name = models.CharField(max_length=255, default='', blank=True)
+
+    project = models.ForeignKey('Project', on_delete=models.CASCADE)
+    flye_result = models.ForeignKey(FlyeResult, on_delete=models.CASCADE)
+
+    status = models.CharField(
+        max_length=20,
+        choices=(('queued', 'Queued'), ('running', 'Running'), ('completed', 'Completed'), ('failed', 'Failed')),
+        default='queued'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"ProkkaJob for {self.flye_result.id}"
+
+class ProkkaResult(models.Model):
+    prokka_job = models.ForeignKey(ProkkaJob, on_delete=models.SET_NULL, null=True, blank=True, related_name='prokka_results')
+
+    prokka_output_dir = models.FilePathField(path='prokka_output/', match='.*', recursive=True)
+
+    processed_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"ProkkaResult for {self.prokka_job.id}"
+
 class PorechopJob(models.Model):
     nanopore_sequence = models.ForeignKey(NanoporeSequence, on_delete=models.CASCADE)
     project = models.ForeignKey(Project, on_delete=models.CASCADE)
