@@ -122,6 +122,7 @@ urlpatterns = [
     path('backend/flye', submit_flye_job, name='flye'),
     path('backend/quast', submit_quast_job, name='quast'),
     path('backend/plannotate', submit_plannotate_job, name='plannotate'),
+    path('backend/prokka', submit_prokka_job, name='prokka'),
     path('backend/google_image_search', google_image_search, name='google_image_search'),
 ]
 

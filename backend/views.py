@@ -25,11 +25,11 @@ import string
 import time
 import uuid
 #from django.shortcuts import render
-from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail, Dada2Result, RarefactionJobDetail, CoreMetricsJobDetail, CoreMetricsResult, GneissJobDetail, AncomJobDetail, PronameImportJobDetail, PronameImportResult, PronameFilterJobDetail, PronameFilterResult, PronameRefineJobDetail, PronameRefineResult, PronameTaxonomyJobDetail, RasusaJob, RasusaResult, FlyeJob, FlyeResult, QuastJob, PlannotateJob
+from .models import UserProfile, Ethnicity, EmailVerifyToken, PasswordResetToken, Project, DataFile, ProjectDataFile, NanoporeSampleSet, NanoporeSequence, ProjectNanoporeSequence, FastpJob, FastpResult, PorechopJob, PorechopResult, MedakaJob, MedakaResult, BlastJob, BlastResult, BlastData, MuscleJob, MuscleData, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, ReferenceData, SampleData, ConsensusData, ProjectBlastDone, EnhancedPermissionToken, PodFile, BasecallingJob, Job, UserNanoporeSequence, JobPodFile, DataFolder, SangerSequenceFolder, NanoporeSequenceFolder, Specimen, Author, MetabarcodingFile, MetadataFile, ProjectMetabarcodingFile, ProjectMetadataFile, DemuxJobDetail, DemuxResult, Dada2JobDetail, Dada2Result, RarefactionJobDetail, CoreMetricsJobDetail, CoreMetricsResult, GneissJobDetail, AncomJobDetail, PronameImportJobDetail, PronameImportResult, PronameFilterJobDetail, PronameFilterResult, PronameRefineJobDetail, PronameRefineResult, PronameTaxonomyJobDetail, RasusaJob, RasusaResult, FlyeJob, FlyeResult, QuastJob, PlannotateJob, ProkkaJob
 from .utils import parse_reads, cleanSequenceName, sequence_trim, blast, muscle, phylip_ml, phylip_nj, consense, multi_seq_muscle_jobs, job_status_check, local_sequence_trim, suggested_trim, undo_sequence_trim, local_consense, local_blast, local_muscle, local_phylip_nj, local_phylip_ml, get_quality_scores, is_low_quality, is_text_file, extract_genbank_data, extract_sequences, ensure_instance_ready, get_service_token, generate_user_token, connect_to_tapis, placeholder_tapis_job, base10_to_base36, INSDC_COUNTRY_MAP, validate_fastq_gz, validate_qiime2_metadata_format, validate_qiime2_tsv, download_cyverse_file, extract_qiime2_metadata_sample_ids, get_max_rarefaction_depth, get_sampling_depth_guardrails, get_user_job_status, stop_job, validate_metabarcoding_pairs, find_best_medaka_model, is_gzip, is_fastq_text, get_nanopore_assembly_pipeline
 import gzip
 import shutil
-from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task, submit_rarefaction_job_task, submit_coremetrics_job_task, submit_gneiss_job_task, submit_ancom_job_task, submit_proname_import_job_task, submit_proname_filter_job_task, submit_proname_refine_job_task, run_rasusa_task, run_flye_task, run_quast_task, run_plannotate_task # Celery task
+from .tasks import run_fastp_task, run_porechop_task, run_medaka_task, run_basecall_task, submit_demux_job_task, submit_dada2_job_task, submit_rarefaction_job_task, submit_coremetrics_job_task, submit_gneiss_job_task, submit_ancom_job_task, submit_proname_import_job_task, submit_proname_filter_job_task, submit_proname_refine_job_task, run_rasusa_task, run_flye_task, run_quast_task, run_plannotate_task, run_prokka_task # Celery task
 from Bio import SeqIO
 import base64
 from .models import Author, MuscleTrim
@@ -7800,6 +7800,46 @@ def submit_plannotate_job(request):
     return JsonResponse({
         'success': 'Successfully queued pLannotate.',
         'job_id': plannotate_job.id,
+    })
+
+def submit_prokka_job(request):
+    parsed_data = parse_user_project_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse(
+            {'error': parsed_data['error']},
+            status=parsed_data['status'],
+        )
+
+    project = parsed_data['project']
+
+    flye_result, error = get_completed_flye_result(project)
+    if error:
+        return JsonResponse({'error': error}, status=400)
+
+    is_duplicate = ProkkaJob.objects.filter(
+        project=project,
+        flye_result=flye_result,
+    ).exclude(status='failed').exists()
+
+    if is_duplicate:
+        return JsonResponse({
+            'error': (
+                'A Prokka job for this Flye result already exists '
+                'and has not failed.'
+            )
+        }, status=400)
+
+    prokka_job = ProkkaJob.objects.create(
+        project=project,
+        flye_result=flye_result,
+        status='queued',
+    )
+
+    run_prokka_task.delay(prokka_job.id)
+
+    return JsonResponse({
+        'success': 'Successfully queued prokka.',
+        'job_id': prokka_job.id,
     })
 
 def google_image_search(request):

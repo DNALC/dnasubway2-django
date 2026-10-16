@@ -11,7 +11,7 @@ from ansi2html import Ansi2HTMLConverter
 from django.utils import timezone
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from .models import FastpJob, FastpResult, ProjectNanoporeSequence, PorechopResult, PorechopJob, MedakaJob, MedakaResult, DataFile, ProjectDataFile, BlastJob, BlastResult, Job, BlastData, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, JobPodFile, BasecallingJob, ProjectMetabarcodingFile, BlastCache, RasusaJob, RasusaResult, FlyeJob, FlyeResult, QuastJob, QuastResult, PlannotateJob, PlannotateResult
+from .models import FastpJob, FastpResult, ProjectNanoporeSequence, PorechopResult, PorechopJob, MedakaJob, MedakaResult, DataFile, ProjectDataFile, BlastJob, BlastResult, Job, BlastData, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, JobPodFile, BasecallingJob, ProjectMetabarcodingFile, BlastCache, RasusaJob, RasusaResult, FlyeJob, FlyeResult, QuastJob, QuastResult, PlannotateJob, PlannotateResult, ProkkaJob, ProkkaResult
 from .utils import get_service_token, generate_user_token, connect_to_tapis, ensure_instance_ready
 from django.conf import settings
 import tempfile
@@ -1963,3 +1963,71 @@ def run_plannotate_task(plannotate_job_id):
         )
 
     return f'pLannotate job {plannotate_job.id} completed successfully.'
+
+@shared_task
+def run_prokka_task(prokka_job_id):
+    try:
+        prokka_job = ProkkaJob.objects.select_related(
+            'flye_result'
+        ).get(id=prokka_job_id)
+    except ProkkaJob.DoesNotExist:
+        return (
+            f'Job failed to initialize: '
+            f'ProkkaJob {prokka_job_id} does not exist.'
+        )
+
+    prokka_job.status = 'running'
+    prokka_job.save(update_fields=['status'])
+
+    try:
+        # 1. Retrieve the Flye result and assembly FASTA.
+        flye_result = prokka_job.flye_result
+        assembly_fasta = flye_result.assembly_fasta.path
+
+        if not os.path.isfile(assembly_fasta):
+            raise FileNotFoundError(
+                f'Flye assembly FASTA not found: {assembly_fasta}'
+            )
+
+        # 2. Set up the output directory.
+        output_dir = os.path.join(
+            'prokka_output',
+            str(flye_result.id),
+        )
+
+        os.makedirs('prokka_output', exist_ok=True)
+        shutil.rmtree(output_dir, ignore_errors=True)
+
+        # 3. Run pLannotate.
+        prokka_command = [
+            'conda', 'run', '-n', 'prokka_env',
+            'prokka',
+            '--outdir', output_dir,
+            '--prefix', 'my_genome',
+            assembly_fasta,
+        ]
+
+        subprocess.run(prokka_command, check=True)
+
+        if not os.path.isdir(output_dir):
+            raise FileNotFoundError(
+                f'prokka output directory was not created: {output_dir}'
+            )
+
+        # 4. Save the results.
+        ProkkaResult.objects.create(
+            prokka_job=prokka_job,
+            prokka_output_dir=output_dir,
+        )
+
+        prokka_job.status = 'completed'
+        prokka_job.save(update_fields=['status'])
+
+    except Exception as e:
+        prokka_job.status = 'failed'
+        prokka_job.save(update_fields=['status'])
+        return (
+            f'prokka job {prokka_job.id} failed: {str(e)}'
+        )
+
+    return f'prokka job {prokka_job.id} completed successfully.'
