@@ -1723,7 +1723,12 @@ def run_rasusa_task(rasusa_job_id):
 
     # Handle success (runs only if subprocess succeeds)
     with open(rasusa_log_file, 'wb') as log_file:
-        log_file.write(completed.stdout or b'')
+        if completed.stdout:
+            log_file.write(completed.stdout)
+            if completed.stderr:
+                log_file.write(b'\n' + completed.stderr)
+        elif completed.stderr:
+            log_file.write(completed.stderr)
 
     rasusa_job.status = 'completed'
     rasusa_job.save(update_fields=['status'])
