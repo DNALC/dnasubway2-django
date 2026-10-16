@@ -7531,6 +7531,37 @@ def submit_rasusa_job(request):
         'job_ids': created_rasusa_job_ids
     })
 
+def set_rasusa_job_primary(request):
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    job_id = data.get('job_id', 0)
+
+    try:
+        job = RasusaJob.objects.get(id=job_id)
+    except RasusaJob.DoesNotExist:
+        return JsonResponse({'error': 'RasusaJob not found'}, status=400)
+
+    if hasattr(job.project, 'user') and job.project.user != request.user:
+        return JsonResponse({'error': 'You do not have permission for this job'}, status=400)
+
+    if job.status != "completed":
+        return JsonResponse({'error': 'Job is not completed'}, status=400)
+
+    RasusaJob.objects.filter(
+        project=job.project,
+        primary=True
+    ).update(primary=False)
+
+    job.primary = True
+    job.save()
+
+    return JsonResponse({
+        'success': 'Successfully updated Rasusa job to primary.'
+    })
+
 def submit_flye_job(request):
     parsed_data = parse_user_project_data(request)
     if 'error' in parsed_data:
@@ -7624,6 +7655,37 @@ def submit_flye_job(request):
     return JsonResponse({
         'success': 'Successfully queued Flye.',
         'job_id': flye_job.id
+    })
+
+def set_flye_job_primary(request):
+    parsed_data = parse_user_data(request)
+    if 'error' in parsed_data:
+        return JsonResponse({'error': parsed_data['error']}, status=parsed_data['status'])
+
+    data = parsed_data['data']
+    job_id = data.get('job_id', 0)
+
+    try:
+        job = FlyeJob.objects.get(id=job_id)
+    except FlyeJob.DoesNotExist:
+        return JsonResponse({'error': 'FlyeJob not found'}, status=400)
+
+    if hasattr(job.project, 'user') and job.project.user != request.user:
+        return JsonResponse({'error': 'You do not have permission for this job'}, status=400)
+
+    if job.status != "completed":
+        return JsonResponse({'error': 'Job is not completed'}, status=400)
+
+    FlyeJob.objects.filter(
+        project=job.project,
+        primary=True
+    ).update(primary=False)
+
+    job.primary = True
+    job.save()
+
+    return JsonResponse({
+        'success': 'Successfully updated Rasusa job to primary.'
     })
 
 def get_completed_flye_result(project):
