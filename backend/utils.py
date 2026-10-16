@@ -20,7 +20,7 @@ import zipfile
 import h5py
 from collections import defaultdict
 from tapipy.tapis import Tapis
-from .models import Job, DataFile, TrimJob, ConsensusJob, ConsensusData, BlastJob, BlastData, BlastResult, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, Project, ProjectDataFile, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, BlastCache, ProjectMetabarcodingFile, PronameRefineJobDetail, RasusaJob, RasusaResult, FlyeJob, FlyeResult, QuastJob, QuastResult, PlannotateJob, PlannotateResult
+from .models import Job, DataFile, TrimJob, ConsensusJob, ConsensusData, BlastJob, BlastData, BlastResult, MuscleJob, MuscleFile, MuscleData, MuscleSequence, MuscleConservation, MuscleVariation, MuscleConsensus, MuscleSimilarity, Project, ProjectDataFile, PhylipNJJob, PhylipNJData, PhylipMLJob, PhylipMLData, BlastCache, ProjectMetabarcodingFile, PronameRefineJobDetail, RasusaJob, RasusaResult, FlyeJob, FlyeResult, QuastJob, QuastResult, PlannotateJob, PlannotateResult, ProkkaJob, ProkkaResult
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 tapis = Tapis(base_url='https://cyverse.tapis.io', username=settings.TAPIS_CYVERSE_USERNAME, password=settings.TAPIS_CYVERSE_PASSWORD)
@@ -2608,6 +2608,53 @@ def get_nanopore_assembly_pipeline(project, project_nanopore_sequences):
             'plannotate_job_id': result.plannotate_job_id,
             'flye_result_id': result.plannotate_job.flye_result_id,
             'plannotate_output_dir': result.plannotate_output_dir,
+            'processed_at': result.processed_at,
+        })
+
+    # ---------------------------------------------------------
+    # Prokka jobs and results
+    # ---------------------------------------------------------
+    prokka_jobs = ProkkaJob.objects.filter(
+        project=project,
+        flye_result_id__in=flye_result_ids,
+    ).select_related(
+        'flye_result__project_nanopore_sequence',
+    ).order_by('-created_at', '-id')
+
+    prokka_job_ids = []
+
+    for job in prokka_jobs:
+        sequence_id = (
+            job.flye_result.project_nanopore_sequence.nanopore_sequence_id
+        )
+        prokka_job_ids.append(job.id)
+
+        pipeline[sequence_id]['prokka']['jobs'].append({
+            'id': job.id,
+            'name': job.chosen_name,
+            'primary': job.primary,
+            'status': job.status,
+            'flye_result_id': job.flye_result_id,
+            'created_at': job.created_at,
+        })
+
+    prokka_results = ProkkaResult.objects.filter(
+        prokka_job_id__in=prokka_job_ids,
+    ).select_related(
+        'prokka_job__flye_result__project_nanopore_sequence',
+    ).order_by('-processed_at', '-id')
+
+    for result in prokka_results:
+        sequence_id = (
+            result.prokka_job.flye_result
+            .project_nanopore_sequence.nanopore_sequence_id
+        )
+
+        pipeline[sequence_id]['prokka']['results'].append({
+            'id': result.id,
+            'prokka_job_id': result.prokka_job_id,
+            'flye_result_id': result.prokka_job.flye_result_id,
+            'prokka_output_dir': result.prokka_output_dir,
             'processed_at': result.processed_at,
         })
 
