@@ -7855,6 +7855,10 @@ def submit_quast_job(request):
         return JsonResponse({'error': error}, status=400)
 
 
+    requested_result_ids = {
+        result.id for result in flye_results
+    }
+
     # Prevent a duplicate job for the exact same set of assemblies.
     existing_jobs = (
         QuastJob.objects
