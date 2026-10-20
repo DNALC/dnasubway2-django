@@ -1837,11 +1837,14 @@ def run_flye_task(flye_job_id, subsampled_file, rasusa_result_id, genome_size):
 @shared_task
 def run_quast_task(quast_job_id):
     try:
-        quast_job = QuastJob.objects.select_related(
-            'flye_result'
+        quast_job = QuastJob.objects.prefetch_related(
+            'flye_results'
         ).get(id=quast_job_id)
     except QuastJob.DoesNotExist:
-        return f'Job failed to initialize: QuastJob {quast_job_id} does not exist.'
+        return (
+            f'Job failed to initialize: '
+            f'QuastJob {quast_job_id} does not exist.'
+        )
 
     quast_job.status = 'running'
     quast_job.save(update_fields=['status'])
