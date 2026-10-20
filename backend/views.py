@@ -7722,6 +7722,116 @@ def get_completed_flye_result(project):
 
     return flye_result, None
 
+def get_quast_flye_results(project, job_ids):
+    """
+    Return all Flye results to include in one QUAST run.
+
+    If job_ids is empty, select all Flye results for the project.
+    Otherwise, select all results belonging to the specified FlyeJobs.
+
+    Returns:
+        (flye_results, None) on success
+        (None, error_message) on failure
+    """
+    if job_ids:
+        if not isinstance(job_ids, list):
+            return None, "'job_ids' must be a list of FlyeJob IDs."
+
+        normalized_ids = []
+
+        for raw_id in job_ids:
+            if isinstance(raw_id, bool):
+                return None, f"Invalid FlyeJob ID: {raw_id!r}."
+
+            try:
+                job_id = int(raw_id)
+            except (TypeError, ValueError):
+                return None, f"Invalid FlyeJob ID: {raw_id!r}."
+
+            if job_id <= 0:
+                return None, f"Invalid FlyeJob ID: {raw_id!r}."
+
+            normalized_ids.append(job_id)
+
+        # Deduplicate IDs while preserving their order.
+        job_ids = list(dict.fromkeys(normalized_ids))
+
+        if not job_ids:
+            return get_quast_flye_results(project, [])
+
+        # Every requested FlyeJob must belong to this project.
+        found_job_ids = set(
+            FlyeJob.objects.filter(
+                project=project,
+                id__in=job_ids,
+            ).values_list('id', flat=True)
+        )
+
+        unknown_job_ids = [
+            job_id for job_id in job_ids
+            if job_id not in found_job_ids
+        ]
+
+        if unknown_job_ids:
+            return None, (
+                'The following FlyeJob IDs were not found in this project: '
+                + ', '.join(map(str, unknown_job_ids))
+            )
+
+        # Fetch every result belonging to the requested jobs.
+        flye_results = list(
+            FlyeResult.objects.filter(
+                project_nanopore_sequence__project=project,
+                flye_job_id__in=job_ids,
+            ).order_by('flye_job_id', 'processed_at', 'id')
+        )
+
+        jobs_with_results = {
+            result.flye_job_id for result in flye_results
+        }
+
+        jobs_without_results = [
+            job_id for job_id in job_ids
+            if job_id not in jobs_with_results
+        ]
+
+        if jobs_without_results:
+            return None, (
+                'The following FlyeJob IDs have no associated Flye '
+                'results: '
+                + ', '.join(map(str, jobs_without_results))
+            )
+
+    else:
+        # No specific jobs requested: include every Flye result
+        # associated with this project.
+        flye_results = list(
+            FlyeResult.objects.filter(
+                project_nanopore_sequence__project=project,
+            ).order_by('processed_at', 'id')
+        )
+
+        if not flye_results:
+            return None, 'This project has no Flye results.'
+
+    # Validate every assembly before creating or queueing a QUAST job.
+    for flye_result in flye_results:
+        try:
+            assembly_fasta_path = flye_result.assembly_fasta.path
+        except (ValueError, NotImplementedError, OSError):
+            return None, (
+                f'Flye result {flye_result.id} has no accessible '
+                'assembly FASTA.'
+            )
+
+        if not os.path.isfile(assembly_fasta_path):
+            return None, (
+                f'The assembly FASTA for Flye result '
+                f'{flye_result.id} does not exist.'
+            )
+
+    return flye_results, None
+
 def submit_quast_job(request):
     parsed_data = parse_user_project_data(request)
     if 'error' in parsed_data:
@@ -7730,36 +7840,59 @@ def submit_quast_job(request):
             status=parsed_data['status'],
         )
 
+    data = parsed_data['data']
     project = parsed_data['project']
 
-    flye_result, error = get_completed_flye_result(project)
+    # Empty or omitted job_ids means all Flye results for the project.
+    job_ids = data.get('job_ids') or []
+
+    flye_results, error = get_quast_flye_results(
+        project,
+        job_ids,
+    )
+
     if error:
         return JsonResponse({'error': error}, status=400)
 
-    is_duplicate = QuastJob.objects.filter(
-        project=project,
-        flye_result=flye_result,
-    ).exclude(status='failed').exists()
 
-    if is_duplicate:
-        return JsonResponse({
-            'error': (
-                'A QUAST job for this Flye result already exists '
-                'and has not failed.'
-            )
-        }, status=400)
+    # Prevent a duplicate job for the exact same set of assemblies.
+    existing_jobs = (
+        QuastJob.objects
+        .filter(project=project)
+        .exclude(status='failed')
+        .prefetch_related('flye_results')
+    )
+    for existing_job in existing_jobs:
+        existing_result_ids = {
+            result.id
+            for result in existing_job.flye_results.all()
+        }
 
+        if existing_result_ids == requested_result_ids:
+            return JsonResponse({
+                'error': (
+                    'A QUAST job for this exact set of Flye results '
+                    'already exists and has not failed.'
+                ),
+            }, status=400)
+
+    # Create ONE job, then associate all selected assemblies with it.
     quast_job = QuastJob.objects.create(
         project=project,
-        flye_result=flye_result,
         status='queued',
     )
+
+    quast_job.flye_results.set(flye_results)
 
     run_quast_task.delay(quast_job.id)
 
     return JsonResponse({
-        'success': 'Successfully queued QUAST.',
+        'success': (
+            f'Successfully queued QUAST for '
+            f'{len(flye_results)} assembly/assemblies.'
+        ),
         'job_id': quast_job.id,
+        'assembly_count': len(flye_results),
     })
 
 def submit_plannotate_job(request):

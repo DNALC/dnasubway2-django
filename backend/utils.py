@@ -2520,50 +2520,101 @@ def get_nanopore_assembly_pipeline(project, project_nanopore_sequences):
     # ---------------------------------------------------------
     # QUAST jobs and results
     # ---------------------------------------------------------
-    quast_jobs = QuastJob.objects.filter(
-        project=project,
-        flye_result_id__in=flye_result_ids,
-    ).select_related(
-        'flye_result__project_nanopore_sequence',
-    ).order_by('-created_at', '-id')
+    # A single QuastJob can reference multiple FlyeResults, potentially
+    # belonging to different Nanopore sequences.
+    #
+    # Include each job under every sequence represented by its assemblies.
+    # Each sequence's entry contains the complete set of FlyeResult IDs
+    # associated with that combined QUAST run.
+
+    quast_jobs = list(
+        QuastJob.objects.filter(
+            project=project,
+            flye_results__id__in=flye_result_ids,
+        ).distinct().prefetch_related(
+            'flye_results__project_nanopore_sequence',
+        ).order_by('-created_at', '-id')
+    )
 
     quast_job_ids = []
+    quast_flye_result_ids_by_job = {}
+    quast_sequence_ids_by_job = {}
 
     for job in quast_jobs:
-        sequence_id = (
-            job.flye_result.project_nanopore_sequence.nanopore_sequence_id
+        # Restrict serialized associations to Flye results belonging
+        # to the current project's ProjectNanoporeSequence records.
+        job_flye_results = sorted(
+            (
+                result
+                for result in job.flye_results.all()
+                if result.project_nanopore_sequence_id in pns_ids
+            ),
+            key=lambda result: result.id,
         )
-        quast_job_ids.append(job.id)
 
-        pipeline[sequence_id]['quast']['jobs'].append({
+        if not job_flye_results:
+            continue
+
+        job_id = job.id
+        associated_result_ids = [
+            result.id for result in job_flye_results
+        ]
+
+        associated_sequence_ids = {
+            result.project_nanopore_sequence.nanopore_sequence_id
+            for result in job_flye_results
+        }
+
+        quast_job_ids.append(job_id)
+        quast_flye_result_ids_by_job[job_id] = associated_result_ids
+        quast_sequence_ids_by_job[job_id] = associated_sequence_ids
+
+        job_data = {
             'id': job.id,
             'name': job.chosen_name,
             'primary': job.primary,
             'status': job.status,
-            'flye_result_id': job.flye_result_id,
+            'flye_result_ids': associated_result_ids,
             'created_at': job.created_at,
-        })
+        }
 
-    # Query result records separately so multiple results are retained.
+        # A combined QUAST job appears under each sequence involved
+        # in the comparison.
+        for sequence_id in associated_sequence_ids:
+            pipeline[sequence_id]['quast']['jobs'].append(
+                job_data.copy()
+            )
+
+    # Each QuastResult represents the combined output directory for
+    # its QuastJob, not an individual assembly.
     quast_results = QuastResult.objects.filter(
         quast_job_id__in=quast_job_ids,
     ).select_related(
-        'quast_job__flye_result__project_nanopore_sequence',
+        'quast_job',
     ).order_by('-processed_at', '-id')
 
     for result in quast_results:
-        sequence_id = (
-            result.quast_job.flye_result
-            .project_nanopore_sequence.nanopore_sequence_id
-        )
+        job_id = result.quast_job_id
 
-        pipeline[sequence_id]['quast']['results'].append({
+        if job_id not in quast_flye_result_ids_by_job:
+            continue
+
+        result_data = {
             'id': result.id,
-            'quast_job_id': result.quast_job_id,
-            'flye_result_id': result.quast_job.flye_result_id,
+            'quast_job_id': job_id,
+            'flye_result_ids': (
+                quast_flye_result_ids_by_job[job_id]
+            ),
             'quast_output_dir': result.quast_output_dir,
             'processed_at': result.processed_at,
-        })
+        }
+
+        # Expose the combined report under every sequence participating
+        # in this QUAST run.
+        for sequence_id in quast_sequence_ids_by_job[job_id]:
+            pipeline[sequence_id]['quast']['results'].append(
+                result_data.copy()
+            )
 
     # ---------------------------------------------------------
     # pLannotate jobs and results

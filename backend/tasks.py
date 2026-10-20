@@ -1847,29 +1847,53 @@ def run_quast_task(quast_job_id):
     quast_job.save(update_fields=['status'])
 
     try:
-        # 1. Retrieve the Flye result and assembly FASTA.
-        flye_result = quast_job.flye_result
-        assembly_fasta = flye_result.assembly_fasta.path
-
-        if not os.path.isfile(assembly_fasta):
-            raise FileNotFoundError(
-                f'Flye assembly FASTA not found: {assembly_fasta}'
-            )
-
-        # 2. Set up the output directory.
-        output_dir = os.path.join(
-            'quast_output',
-            str(flye_result.id),
+        # 1. Retrieve every assembly associated with this QUAST job.
+        flye_results = list(
+            quast_job.flye_results.order_by('id')
         )
 
+        if not flye_results:
+            raise ValueError(
+                'The QUAST job has no associated Flye results.'
+            )
+
+        assembly_fasta_paths = []
+
+        for flye_result in flye_results:
+            try:
+                assembly_fasta_path = (
+                    flye_result.assembly_fasta.path
+                )
+            except (ValueError, NotImplementedError, OSError) as exc:
+                raise ValueError(
+                    f'Assembly FASTA for Flye result '
+                    f'{flye_result.id} is not accessible.'
+                ) from exc
+
+            if not os.path.isfile(assembly_fasta_path):
+                raise FileNotFoundError(
+                    f'Assembly FASTA for Flye result '
+                    f'{flye_result.id} does not exist: '
+                    f'{assembly_fasta_path}'
+                )
+
+            assembly_fasta_paths.append(assembly_fasta_path)
+
+        # 2. Create a single output directory for the entire QUAST job.
         os.makedirs('quast_output', exist_ok=True)
+
+        output_dir = os.path.join(
+            'quast_output',
+            str(quast_job.id),
+        )
+
         shutil.rmtree(output_dir, ignore_errors=True)
 
         # 3. Run QUAST.
         quast_command = [
             'conda', 'run', '-n', 'assembly_env',
             'quast.py',
-            assembly_fasta,
+            *assembly_fasta_paths,
             '-o', output_dir,
         ]
 
@@ -1894,7 +1918,10 @@ def run_quast_task(quast_job_id):
         quast_job.save(update_fields=['status'])
         return f'QUAST job {quast_job.id} failed: {str(e)}'
 
-    return f'QUAST job {quast_job.id} completed successfully.'
+    return (
+        f'QUAST job {quast_job.id} completed successfully '
+        f'for {len(assembly_fasta_paths)} assemblies.'
+    )
 
 @shared_task
 def run_plannotate_task(plannotate_job_id):
