@@ -986,6 +986,10 @@ class QuastJob(models.Model):
     chosen_name = models.CharField(max_length=255, default='', blank=True)
 
     project = models.ForeignKey('Project', on_delete=models.CASCADE)
+    flye_results = models.ManyToManyField(
+        FlyeResult,
+        related_name='quast_jobs',
+    )
     flye_result = models.ForeignKey(FlyeResult, on_delete=models.CASCADE)
 
     status = models.CharField(
