@@ -990,7 +990,6 @@ class QuastJob(models.Model):
         FlyeResult,
         related_name='quast_jobs',
     )
-    flye_result = models.ForeignKey(FlyeResult, on_delete=models.CASCADE)
 
     status = models.CharField(
         max_length=20,
