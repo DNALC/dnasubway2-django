@@ -3786,9 +3786,9 @@ def upload_fasta_content(request):
     if len(sequences) < 1:
         return JsonResponse({'error': 'Invalid FASTA format'}, status=400)
 
-    sequences_added = False
-
+    datafile_ids = []
     warnings = []
+
     for seq_record in sequences:
         name = seq_record.id
         reads = str(seq_record.seq)
@@ -3823,12 +3823,12 @@ def upload_fasta_content(request):
             project=project,
             data_file=data_file
         )
-        sequences_added = True
+        datafile_ids.append(data_file.id)
 
-    if not sequences_added:
+    if not datafile_ids:
         return JsonResponse({'error': "No valid files were processed.", 'warnings': warnings}, status=400)
 
-    return JsonResponse({"status": "success", "warnings": warnings}, status=200)
+    return JsonResponse({"status": "success", "warnings": warnings, "datafile_ids": datafile_ids}, status=200)
 
 def request_enhanced_permission(request):
     parsed_data = parse_user_data(request)
